@@ -35,7 +35,7 @@ func (m Model) renderMain() string {
 	}
 
 	hdr := m.renderHeader(p)
-	bdy := m.renderBody(p, bodyH, centerW)
+	bdy := clampToHeight(m.renderBody(p, bodyH, centerW), bodyH)
 	sts := m.renderStatusBar(p)
 
 	return hdr + "\n" + bdy + "\n" + sts
@@ -192,86 +192,121 @@ func (m Model) renderSearchRow(p palette, w int) string {
 }
 
 func (m Model) renderCommandList(p palette, w, listH int) []string {
+	// Each command card is 2 rows: name row + detail row.
+	const rowsPerItem = 2
+	maxItems := listH / rowsPerItem
+
+	// Scroll the visible window so selected item is always visible.
+	start := 0
+	if m.selected >= maxItems {
+		start = m.selected - maxItems + 1
+	}
+
 	rows := make([]string, listH)
 	for i := range rows {
 		rows[i] = lipgloss.NewStyle().Width(w).Background(p.bgPanel).Render("")
 	}
-	for i, cmd := range m.filtered {
-		if i >= listH {
-			break
-		}
-		rows[i] = m.renderCommandRow(p, cmd, i == m.selected, w)
+
+	slot := 0
+	for i := start; i < len(m.filtered) && slot < maxItems; i++ {
+		selected := i == m.selected
+		r1, r2 := m.renderCommandCard(p, m.filtered[i], selected, w)
+		rows[slot*rowsPerItem] = r1
+		rows[slot*rowsPerItem+1] = r2
+		slot++
 	}
 	return rows
 }
 
-func (m Model) renderCommandRow(p palette, cmd source.Command, selected bool, w int) string {
+// renderCommandCard renders a single command as a 2-row card block.
+func (m Model) renderCommandCard(
+	p palette,
+	cmd source.Command,
+	selected bool,
+	w int,
+) (string, string) {
+	bg := p.bgPanel
+	fg := p.fgDim
+	if selected {
+		bg = p.bgSelected
+		fg = p.fg
+	}
+
 	// Left accent bar (1 char)
 	var bar string
 	if selected {
 		bar = style(p.accent, false).Render("▌")
 	} else {
-		bar = " "
+		bar = style(p.border, false).Render("▏")
 	}
 
-	// Key badge — inline, no border box
+	// Key badge
 	badge := renderKeyBadge(p, cmd.Shortcut)
 	badgeW := visWidth(badge)
 
-	// Right tag (first tag if any)
-	var tag string
-	tagW := 0
+	// Tag chip (first tag) — right-aligned
+	var tagChip string
+	tagChipW := 0
 	if len(cmd.Tags) > 0 {
-		tag = renderInlineTag(p, cmd.Tags[0])
-		tagW = visWidth(tag) + 1 // +1 space before tag
+		tagChip = renderTagChip(p, cmd.Tags[0])
+		tagChipW = visWidth(tagChip) + 1
 	}
 
-	// Name — truncated to remaining space
-	nameAvail := w - 1 - badgeW - 1 - tagW // bar + badge + space + tag
+	// Row 1: bar + badge + name (right-aligns tag)
+	nameAvail := w - 1 - badgeW - 1 - tagChipW
 	if nameAvail < 1 {
 		nameAvail = 1
 	}
 	name := truncate(cmd.Name, nameAvail)
+	nameStr := lipgloss.NewStyle().Foreground(fg).Bold(selected).Render(name)
 
-	var nameStr string
-	if selected {
-		nameStr = lipgloss.NewStyle().Foreground(p.fg).Bold(true).
-			Background(p.bgSelected).Render(name)
-	} else {
-		nameStr = style(p.fgDim, false).Render(name)
-	}
-
-	// Pad name to push tag to the right
 	namePad := nameAvail - visWidth(name)
 	if namePad < 0 {
 		namePad = 0
 	}
-	spacer := strings.Repeat(" ", namePad)
 
-	var content string
-	if tag != "" {
-		content = bar + badge + " " + nameStr + spacer + " " + tag
+	var row1Content string
+	if tagChip != "" {
+		row1Content = bar + badge + " " + nameStr + strings.Repeat(" ", namePad) + " " + tagChip
 	} else {
-		content = bar + badge + " " + nameStr
+		row1Content = bar + badge + " " + nameStr
 	}
 
-	bg := p.bgPanel
-	if selected {
-		bg = p.bgSelected
+	// Row 2: description or empty (indented to align under name)
+	indent := 1 + badgeW + 1 // bar + badge + space
+	descAvail := w - indent - 2
+	if descAvail < 1 {
+		descAvail = 1
 	}
-	return lipgloss.NewStyle().Width(w).Background(bg).Render(content)
+	desc := truncate(cmd.Desc, descAvail)
+	descStr := lipgloss.NewStyle().Foreground(p.fgMuted).Render(desc)
+	row2Content := strings.Repeat(" ", indent) + descStr
+
+	row1 := lipgloss.NewStyle().Width(w).Background(bg).Render(row1Content)
+	row2 := lipgloss.NewStyle().Width(w).Background(bg).Render(row2Content)
+	return row1, row2
 }
 
 func renderKeyBadge(p palette, key string) string {
 	if key == "" {
 		key = " "
 	}
-	// Single-row inline badge — NO border box.
 	return lipgloss.NewStyle().
-		Foreground(p.accent).Bold(true).
-		Background(p.bgSelected).
+		Foreground(p.bgDeep).Bold(true).
+		Background(p.accent).
 		Padding(0, 1).
 		Render(key)
+}
+
+// renderTagChip renders a tag as a colored chip — uses tag color as background
+// so it reads as a button, not just highlighted text.
+func renderTagChip(p palette, text string) string {
+	c := tagColor(p, text)
+	return lipgloss.NewStyle().
+		Foreground(p.bgDeep).Bold(true).
+		Background(c).
+		Padding(0, 1).
+		Render(text)
 }
 
 func (m Model) renderHintsRow(p palette, w int) string {
@@ -318,7 +353,7 @@ func (m Model) renderCommandHeader(p palette, w int) (string, int) {
 	if len(m.filtered) == 0 {
 		noCmd := lipgloss.NewStyle().Width(w).Background(p.bgPanel).
 			Padding(1, 2).Foreground(p.fgMuted).Render("no commands")
-		return noCmd + "\n" + sepLine(p, w), lipgloss.Height(noCmd)+1
+		return noCmd + "\n" + sepLine(p, w), lipgloss.Height(noCmd) + 1
 	}
 
 	cmd := m.filtered[m.selected]
@@ -530,7 +565,11 @@ func (m Model) renderTermRows(p palette, w, h int) []string {
 
 	if len(m.output) == 0 {
 		placeholder := style(p.fgMuted, false).Render("run a command to see output…")
-		rows[0] = lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.bgDeep).Render(placeholder)
+		rows[0] = lipgloss.NewStyle().
+			Width(w).
+			Padding(0, 1).
+			Background(p.bgDeep).
+			Render(placeholder)
 		return rows
 	}
 
@@ -578,9 +617,12 @@ func (m Model) renderRecentRows(p palette, w, max int) []string {
 
 func (m Model) renderStatusBar(p palette) string {
 	left := fmt.Sprintf("⬡ cast  %d commands  ● %s", len(m.commands), m.env.String())
-	right := fmt.Sprintf("~/projects/myapp  Makefile  v0.1.0")
+	right := "~/projects/myapp  Makefile  v0.1.0"
 
-	gap := m.width - len(left) - len(right) - 2
+	// Use visWidth (visual columns) not len (bytes) — multi-byte Unicode chars
+	// like ⬡ and ● have len > 1 but visual width 1.
+	usedW := visWidth(left) + visWidth(right)
+	gap := m.width - usedW - 2 // -2 for the two Padding(0,1) spaces
 	if gap < 0 {
 		gap = 0
 	}
@@ -606,21 +648,12 @@ func style(c color.Color, bold bool) lipgloss.Style {
 	return s
 }
 
-// renderTag renders a single-row colored badge — NO border box.
-func renderTag(c color.Color, text string) string {
-	return lipgloss.NewStyle().
-		Foreground(c).Bold(true).
-		Background(dimColor(c)).
-		Padding(0, 1).
-		Render(text)
-}
-
-// renderInlineTag is like renderTag but derives color from tag text.
+// renderInlineTag renders a tag with the tag color as background — button style.
 func renderInlineTag(p palette, text string) string {
 	c := tagColor(p, text)
 	return lipgloss.NewStyle().
-		Foreground(c).Bold(true).
-		Background(p.bgSelected).
+		Foreground(p.bgDeep).Bold(true).
+		Background(c).
 		Padding(0, 1).
 		Render(text)
 }
@@ -735,4 +768,14 @@ func truncate(s string, max int) string {
 		return "…"
 	}
 	return s[:max-1] + "…"
+}
+
+// clampToHeight trims a multi-line string to at most h rows.
+// Prevents any over-tall section from pushing the status bar off screen.
+func clampToHeight(s string, h int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= h {
+		return s
+	}
+	return strings.Join(lines[:h], "\n")
 }
