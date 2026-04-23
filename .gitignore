@@ -9,6 +9,7 @@ Makefile
 
 /bin
 
+.cast.toml
 .commitcraft.toml
 /design_handoff_cast_cli
 
