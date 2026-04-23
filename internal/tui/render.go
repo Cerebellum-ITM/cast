@@ -117,7 +117,10 @@ func (m Model) renderEnvPill(p palette) string {
 	}
 
 	inner := strings.Join(parts, "")
-	return lipgloss.NewStyle().Background(p.bgDeep).Padding(0, 1).Render(inner)
+	return lipgloss.NewStyle().
+		Background(p.bgDeep).
+		Border(lipgloss.RoundedBorder()).BorderForeground(p.border).
+		Render(inner)
 }
 
 // ── Body ─────────────────────────────────────────────────────────────────────
@@ -232,14 +235,6 @@ func (m Model) renderCommandCard(
 		fg = p.fg
 	}
 
-	// Left accent bar (1 char)
-	var bar string
-	if selected {
-		bar = style(p.accent, false).Render("▌")
-	} else {
-		bar = style(p.border, false).Render("▏")
-	}
-
 	// Key badge
 	badge := renderKeyBadge(p, cmd.Shortcut)
 	badgeW := visWidth(badge)
@@ -252,8 +247,11 @@ func (m Model) renderCommandCard(
 		tagChipW = visWidth(tagChip) + 1
 	}
 
-	// Row 1: bar + badge + name (right-aligns tag)
-	nameAvail := w - 1 - badgeW - 1 - tagChipW
+	// Border takes 1 column; content fills the rest.
+	contentW := w - 1
+
+	// Row 1: badge + name (right-aligns tag) within contentW
+	nameAvail := contentW - badgeW - 1 - tagChipW
 	if nameAvail < 1 {
 		nameAvail = 1
 	}
@@ -267,14 +265,14 @@ func (m Model) renderCommandCard(
 
 	var row1Content string
 	if tagChip != "" {
-		row1Content = bar + badge + " " + nameStr + strings.Repeat(" ", namePad) + " " + tagChip
+		row1Content = badge + " " + nameStr + strings.Repeat(" ", namePad) + " " + tagChip
 	} else {
-		row1Content = bar + badge + " " + nameStr
+		row1Content = badge + " " + nameStr
 	}
 
-	// Row 2: description or empty (indented to align under name)
-	indent := 1 + badgeW + 1 // bar + badge + space
-	descAvail := w - indent - 2
+	// Row 2: description indented to align under name
+	indent := badgeW + 1 // badge + space
+	descAvail := contentW - indent - 1
 	if descAvail < 1 {
 		descAvail = 1
 	}
@@ -282,8 +280,20 @@ func (m Model) renderCommandCard(
 	descStr := lipgloss.NewStyle().Foreground(p.fgMuted).Render(desc)
 	row2Content := strings.Repeat(" ", indent) + descStr
 
-	row1 := lipgloss.NewStyle().Width(w).Background(bg).Render(row1Content)
-	row2 := lipgloss.NewStyle().Width(w).Background(bg).Render(row2Content)
+	// Left border: thick accent for selected, normal dim for unselected.
+	var rowStyle lipgloss.Style
+	if selected {
+		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+			BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(p.accent).BorderBackground(bg)
+	} else {
+		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+			BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(p.border).BorderBackground(bg)
+	}
+
+	row1 := rowStyle.Render(row1Content)
+	row2 := rowStyle.Render(row2Content)
 	return row1, row2
 }
 
@@ -298,13 +308,12 @@ func renderKeyBadge(p palette, key string) string {
 		Render(key)
 }
 
-// renderTagChip renders a tag as a colored chip — uses tag color as background
-// so it reads as a button, not just highlighted text.
+// renderTagChip renders a tag with the tag color as text on a dark background.
 func renderTagChip(p palette, text string) string {
 	c := tagColor(p, text)
 	return lipgloss.NewStyle().
-		Foreground(p.bgDeep).Bold(true).
-		Background(c).
+		Foreground(c).
+		Background(p.bgSelected).
 		Padding(0, 1).
 		Render(text)
 }
@@ -313,8 +322,7 @@ func (m Model) renderHintsRow(p palette, w int) string {
 	hints := [][2]string{{"↑↓", "nav"}, {"⏎", "run"}, {"/", "search"}, {"q", "quit"}}
 	var parts []string
 	for _, h := range hints {
-		key := lipgloss.NewStyle().Foreground(p.accent).Bold(true).
-			Background(p.bgSelected).Padding(0, 1).Render(h[0])
+		key := style(p.accent, true).Render("[" + h[0] + "]")
 		lbl := style(p.fgDim, false).Render(h[1])
 		parts = append(parts, key+" "+lbl)
 	}
@@ -648,12 +656,12 @@ func style(c color.Color, bold bool) lipgloss.Style {
 	return s
 }
 
-// renderInlineTag renders a tag with the tag color as background — button style.
+// renderInlineTag renders a tag with the tag color as text on a dark background.
 func renderInlineTag(p palette, text string) string {
 	c := tagColor(p, text)
 	return lipgloss.NewStyle().
-		Foreground(p.bgDeep).Bold(true).
-		Background(c).
+		Foreground(c).
+		Background(p.bgSelected).
 		Padding(0, 1).
 		Render(text)
 }
@@ -676,7 +684,7 @@ func tagColor(p palette, tag string) color.Color {
 	}
 }
 
-// renderProgressBar draws a 1-row progress bar with block characters.
+// renderProgressBar draws a 1-row progress bar with block fill characters.
 func renderProgressBar(p palette, w int, progress float64) string {
 	if w < 2 {
 		return ""
@@ -685,8 +693,8 @@ func renderProgressBar(p palette, w int, progress float64) string {
 	if filled > w {
 		filled = w
 	}
-	return lipgloss.NewStyle().Foreground(p.accent).Render(strings.Repeat("━", filled)) +
-		lipgloss.NewStyle().Foreground(p.bgSelected).Render(strings.Repeat("━", w-filled))
+	return lipgloss.NewStyle().Foreground(p.accent).Render(strings.Repeat("▓", filled)) +
+		lipgloss.NewStyle().Foreground(p.fgMuted).Render(strings.Repeat("░", w-filled))
 }
 
 func statusDot(p palette, status RunStatus) string {
