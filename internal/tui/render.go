@@ -14,7 +14,7 @@ import (
 const (
 	sidebarW = 24 // includes right divider char
 	outputW  = 28 // includes left divider char
-	headerH  = 2  // 1 content row + 1 separator row
+	headerH  = 4  // 3 content rows (pill height) + 1 separator row
 	statusH  = 1
 )
 
@@ -44,31 +44,33 @@ func (m Model) renderMain() string {
 // ── Header (2 rows) ───────────────────────────────────────────────────────────
 
 func (m Model) renderHeader(p palette) string {
-	// Left: logo + divider + tabs
+	// Right: env pill — 3 lines tall due to rounded border.
+	pill := m.renderEnvPill(p)
+	pillW := lipgloss.Width(pill)
+
+	// Left: logo + divider + tabs, rendered as 3 rows to match pill height.
+	// Content sits on the middle row so it visually centers next to the pill.
 	logo := style(p.accent, true).Render("⬡ cast")
 	div := style(p.border, false).Render(" │ ")
 	tabs := m.renderTabs(p)
-	left := logo + div + tabs
+	leftContent := logo + div + tabs
 
-	// Right: env pill + path
-	pill := m.renderEnvPill(p)
-	path := style(p.fgDim, false).Render("~/projects/myapp")
-	right := pill + "  " + path
-
-	// Fill gap
-	gap := m.width - visWidth(left) - visWidth(right) - 2
-	if gap < 0 {
-		gap = 0
+	leftW := m.width - pillW
+	if leftW < 0 {
+		leftW = 0
 	}
-	content := left + strings.Repeat(" ", gap) + right
+	rowStyle := lipgloss.NewStyle().Width(leftW).Background(p.bgPanel).Padding(0, 1)
+	leftBlock := rowStyle.Render("") + "\n" +
+		rowStyle.Render(leftContent) + "\n" +
+		rowStyle.Render("")
 
-	row1 := lipgloss.NewStyle().
-		Background(p.bgPanel).Width(m.width).Padding(0, 1).
-		Render(content)
+	// Rows 1-3: left block beside pill.
+	rows123 := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, pill)
 
-	row2 := style(p.border, false).Render(strings.Repeat("─", m.width))
+	// Row 4: separator.
+	sep := style(p.border, false).Render(strings.Repeat("─", m.width))
 
-	return row1 + "\n" + row2
+	return rows123 + "\n" + sep
 }
 
 func (m Model) renderTabs(p palette) string {
@@ -120,6 +122,7 @@ func (m Model) renderEnvPill(p palette) string {
 	return lipgloss.NewStyle().
 		Background(p.bgDeep).
 		Border(lipgloss.RoundedBorder()).BorderForeground(p.border).
+		Padding(0, 1).
 		Render(inner)
 }
 
