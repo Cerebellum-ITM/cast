@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"os"
+	"strings"
+
 	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -84,6 +87,11 @@ type Model struct {
 	history  []RunRecord
 	filtered []source.Command // search-filtered view of commands
 
+	// Makefile viewer
+	makefileLines  []string
+	makefilePath   string
+	makefileOffset int // scroll offset in lines
+
 	// .env tab state
 	envFile        *source.EnvFile
 	selectedEnvKey int
@@ -97,10 +105,13 @@ type Model struct {
 	theme     config.Theme
 
 	// Execution state
-	running     bool
-	runProgress float64 // 0.0–1.0
-	output      []string
-	showConfirm bool
+	running      bool
+	runProgress  float64 // 0.0–1.0
+	output       []string
+	showConfirm  bool
+	lastRunCmd   string
+	lastRunOK    bool // true = success, false = error
+	hasLastRun   bool // whether a run has completed
 
 	// Layout
 	width  int
@@ -108,8 +119,8 @@ type Model struct {
 
 	// Bubbles sub-models
 	searchInput textinput.Model
-	viewport    viewport.Model // Makefile / file preview
-	outputView  viewport.Model // output panel
+	viewport    viewport.Model // unused — kept for future
+	outputView  viewport.Model
 	spinner     spinner.Model
 	progressBar progress.Model
 }
@@ -128,16 +139,20 @@ func New(cfg *config.Config, commands []source.Command) Model {
 		progress.WithoutPercentage(),
 	)
 
+	mfLines := loadFileLines(cfg.SourcePath)
+
 	return Model{
-		state:       StateSplash,
-		splashModel: splash.New(cfg.Theme),
-		commands:    commands,
-		filtered:    commands,
-		env:         cfg.Env,
-		theme:       cfg.Theme,
-		searchInput: si,
-		spinner:     sp,
-		progressBar: pb,
+		state:         StateSplash,
+		splashModel:   splash.New(cfg.Theme),
+		commands:      commands,
+		filtered:      commands,
+		env:           cfg.Env,
+		theme:         cfg.Theme,
+		searchInput:   si,
+		spinner:       sp,
+		progressBar:   pb,
+		makefileLines: mfLines,
+		makefilePath:  cfg.SourcePath,
 	}
 }
 
@@ -173,6 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = true
 		m.runProgress = 0
 		m.output = nil
+		m.lastRunCmd = msg.Command
 		return m, tea.Batch(m.spinner.Tick, tickCmd())
 
 	case RunOutputMsg:
@@ -183,6 +199,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case RunDoneMsg:
 		m.running = false
 		m.runProgress = 1.0
+		m.hasLastRun = true
+		m.lastRunOK = msg.Status == StatusSuccess
 		m.history = append([]RunRecord{msg.Record}, m.history...)
 		return m, nil
 
@@ -460,4 +478,13 @@ func clampProgress(v float64) float64 {
 
 func tickCmd() tea.Cmd {
 	return func() tea.Msg { return tickMsg{} }
+}
+
+// loadFileLines reads a text file into a slice of lines.
+func loadFileLines(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 }
