@@ -9,13 +9,14 @@ import (
 
 // Command is a runnable entry surfaced in the sidebar list.
 type Command struct {
-	Name     string
-	Desc     string
-	Category string
-	Tags     []string
-	Shortcut string // single-letter keyboard shortcut, e.g. "b"
-	Confirm  bool   // show confirmation modal regardless of active env
-	Stream   bool   // long-running log-streaming command (docker logs -f, tail -f…)
+	Name      string
+	Desc      string
+	Category  string
+	Tags      []string
+	Shortcut  string // single-letter keyboard shortcut, e.g. "b"
+	Confirm   bool   // show confirmation modal regardless of active env
+	NoConfirm bool   // suppress confirmation even in staging/prod (e.g. logs -f)
+	Stream    bool   // long-running log-streaming command (docker logs -f, tail -f…)
 }
 
 // EnvVar is a single variable from a .env file.

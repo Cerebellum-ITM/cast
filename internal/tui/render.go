@@ -47,6 +47,15 @@ func (m Model) renderMain() string {
 		return views.OverlayCenter(full, box)
 	}
 
+	if m.showTagsPopup {
+		box := views.TagsPopup(p, views.TagsPopupProps{
+			CmdName:  m.tagsPopupName,
+			State:    m.tagsPopupState,
+			Selected: m.tagsPopupSel,
+		})
+		return views.OverlayCenter(full, box)
+	}
+
 	if m.showOutputExpand {
 		popupW := m.width - 8
 		if popupW < 40 {

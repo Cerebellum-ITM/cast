@@ -40,6 +40,10 @@ func (m *MakefileSource) Load() ([]Command, error) {
 	defer f.Close()
 
 	var commands []Command
+	// streamPinned[i] is true when the Makefile explicitly declared a stream
+	// tag ([stream] or [no-stream]) for command i — auto-detect must not
+	// override the user's choice in that case.
+	var streamPinned []bool
 	skipTarget := ""
 
 	// Buffer holds recipe lines of the *current* target so we can auto-detect
@@ -51,7 +55,7 @@ func (m *MakefileSource) Load() ([]Command, error) {
 		if recipeFor < 0 || recipeFor >= len(commands) {
 			return
 		}
-		if commands[recipeFor].Stream { // already set via tag override
+		if streamPinned[recipeFor] {
 			return
 		}
 		if isStreamRecipe(body) {
@@ -79,22 +83,24 @@ func (m *MakefileSource) Load() ([]Command, error) {
 				if name == "" {
 					continue
 				}
-				cleanDesc, stream, streamSet := extractStreamTag(desc)
-				cleanDesc, shortcut, shortcutSet := extractShortcutTag(cleanDesc)
+				meta := extractDocTags(desc)
 				cmd := Command{
-					Name: name,
-					Desc: cleanDesc,
-					Tags: inferTags(name),
+					Name:      name,
+					Desc:      meta.Desc,
+					Tags:      inferTags(name),
+					Confirm:   meta.state.Confirm,
+					NoConfirm: meta.state.NoConfirm,
 				}
-				if shortcutSet {
-					cmd.Shortcut = shortcut
+				if meta.state.HasShortcut {
+					cmd.Shortcut = meta.state.Shortcut
 				} else {
 					cmd.Shortcut = autoShortcut(name, commands)
 				}
-				if streamSet {
-					cmd.Stream = stream
+				if meta.state.StreamSet {
+					cmd.Stream = meta.state.Stream
 				}
 				commands = append(commands, cmd)
+				streamPinned = append(streamPinned, meta.state.StreamSet)
 				recipeFor = len(commands) - 1
 				skipTarget = name
 			}
@@ -128,6 +134,7 @@ func (m *MakefileSource) Load() ([]Command, error) {
 				Tags:     inferTags(name),
 				Shortcut: autoShortcut(name, commands),
 			})
+			streamPinned = append(streamPinned, false)
 			recipeFor = len(commands) - 1
 			continue
 		}
@@ -153,23 +160,143 @@ func (m *MakefileSource) Load() ([]Command, error) {
 	return commands, scanner.Err()
 }
 
-// shortcutTagRe matches `[sc=X]` or `[shortcut=X]` (X = single char or empty
-// for "no shortcut"). Trailing whitespace-tolerant.
-var shortcutTagRe = regexp.MustCompile(`(?i)\s*\[(?:sc|shortcut)=([^\]]*)\]\s*$`)
+// DocTagState captures every flag-style tag we recognize on a `## name: desc`
+// line. Exported so callers can inspect and mutate tags uniformly.
+type DocTagState struct {
+	Shortcut    string // single-char; "" means none
+	HasShortcut bool   // true iff [sc=X] was present in source
+	StreamSet   bool   // true iff [stream] or [no-stream] present
+	Stream      bool   // value when StreamSet
+	Confirm     bool   // [confirm] present
+	NoConfirm   bool   // [no-confirm] present
+}
 
-// scTagAnywhereRe matches `[sc=X]` or `[shortcut=X]` with surrounding spaces,
-// wherever it appears in a line. Used to strip a pre-existing tag before we
-// append an updated one.
-var scTagAnywhereRe = regexp.MustCompile(`(?i)\s*\[(?:sc|shortcut)=[^\]]*\]`)
+// docMeta is the parse result for the description portion of a doc line.
+type docMeta struct {
+	Desc  string
+	state DocTagState
+}
 
-// UpdateMakefileShortcut rewrites path so the `## cmdName: ...` docstring
-// carries the given shortcut as a `[sc=X]` tag. Passing an empty shortcut
-// removes the tag. If no docstring exists for cmdName, a minimal one is
-// inserted above the target line.
+// trailingTagRe matches a single `[...]` tag with optional surrounding space
+// at the very end of a string. Content capture is whatever is inside the
+// brackets (minus outer whitespace).
+var trailingTagRe = regexp.MustCompile(`\s*\[([^\]]*)\]\s*$`)
+
+// extractDocTags peels trailing `[tag]` tokens off desc one by one until the
+// tail is no longer a recognized tag. Unknown tags abort the walk (left in
+// desc) so hand-written tags we don't know about survive round-tripping.
+func extractDocTags(desc string) docMeta {
+	m := docMeta{Desc: desc}
+	for {
+		match := trailingTagRe.FindStringSubmatchIndex(m.Desc)
+		if match == nil {
+			return m
+		}
+		inner := strings.TrimSpace(m.Desc[match[2]:match[3]])
+		remaining := strings.TrimRight(m.Desc[:match[0]], " \t")
+		lower := strings.ToLower(inner)
+
+		switch {
+		case lower == "stream":
+			if m.state.StreamSet {
+				return m
+			}
+			m.state.Stream, m.state.StreamSet = true, true
+		case lower == "no-stream":
+			if m.state.StreamSet {
+				return m
+			}
+			m.state.Stream, m.state.StreamSet = false, true
+		case lower == "confirm":
+			if m.state.Confirm || m.state.NoConfirm {
+				return m
+			}
+			m.state.Confirm = true
+		case lower == "no-confirm":
+			if m.state.Confirm || m.state.NoConfirm {
+				return m
+			}
+			m.state.NoConfirm = true
+		case strings.HasPrefix(lower, "sc=") || strings.HasPrefix(lower, "shortcut="):
+			if m.state.HasShortcut {
+				return m
+			}
+			val := inner[strings.Index(inner, "=")+1:]
+			val = strings.TrimSpace(val)
+			if len(val) > 1 {
+				val = val[:1]
+			}
+			m.state.Shortcut, m.state.HasShortcut = val, true
+		default:
+			return m
+		}
+		m.Desc = remaining
+	}
+}
+
+// renderDocTags formats state in a canonical order:
 //
-// A trailing `[stream]` / `[no-stream]` tag on the docstring is preserved and
-// kept at the end so the Makefile parser still sees it.
-func UpdateMakefileShortcut(path, cmdName, shortcut string) error {
+//	[sc=X] [confirm]/[no-confirm] [stream]/[no-stream]
+//
+// Absent tags are omitted entirely — never emit `[sc=]`.
+func renderDocTags(state DocTagState) string {
+	var tags []string
+	if state.HasShortcut && state.Shortcut != "" {
+		tags = append(tags, "[sc="+state.Shortcut+"]")
+	}
+	switch {
+	case state.Confirm:
+		tags = append(tags, "[confirm]")
+	case state.NoConfirm:
+		tags = append(tags, "[no-confirm]")
+	}
+	if state.StreamSet {
+		if state.Stream {
+			tags = append(tags, "[stream]")
+		} else {
+			tags = append(tags, "[no-stream]")
+		}
+	}
+	return strings.Join(tags, " ")
+}
+
+// parseDocLine splits a `## name: desc [tags...]` line into its stable prefix
+// (`## name: desc` with no tags) and its tag state. Returns ok=false if line
+// is not a recognizable doc line for the given name.
+func parseDocLine(line, cmdName string) (prefix string, state DocTagState, ok bool) {
+	if !strings.HasPrefix(line, "## ") {
+		return "", DocTagState{}, false
+	}
+	rest := strings.TrimPrefix(line, "## ")
+	colon := strings.Index(rest, ":")
+	if colon == -1 {
+		return "", DocTagState{}, false
+	}
+	if strings.TrimSpace(rest[:colon]) != cmdName {
+		return "", DocTagState{}, false
+	}
+	desc := strings.TrimSpace(rest[colon+1:])
+	meta := extractDocTags(desc)
+	header := "## " + cmdName + ":"
+	if meta.Desc != "" {
+		header += " " + meta.Desc
+	}
+	return header, meta.state, true
+}
+
+// renderDocLine composes a doc line from the trimmed prefix and tag state.
+func renderDocLine(prefix string, state DocTagState) string {
+	tags := renderDocTags(state)
+	if tags == "" {
+		return prefix
+	}
+	return prefix + " " + tags
+}
+
+// mutateMakefileDocLine loads path, locates the `## cmdName: ...` line (or
+// inserts one above the target if missing), applies mutate to its tag state,
+// and writes the file back atomically.
+func mutateMakefileDocLine(path, cmdName string, mutate func(*DocTagState)) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -179,12 +306,9 @@ func UpdateMakefileShortcut(path, cmdName, shortcut string) error {
 
 	docIdx, targetIdx := -1, -1
 	for i, line := range lines {
-		if docIdx == -1 && strings.HasPrefix(line, "## ") {
-			rest := strings.TrimPrefix(line, "## ")
-			if idx := strings.Index(rest, ":"); idx != -1 {
-				if strings.TrimSpace(rest[:idx]) == cmdName {
-					docIdx = i
-				}
+		if docIdx == -1 {
+			if _, _, ok := parseDocLine(line, cmdName); ok {
+				docIdx = i
 			}
 		}
 		if targetIdx == -1 && !strings.HasPrefix(line, "\t") && !strings.HasPrefix(line, " ") {
@@ -197,13 +321,13 @@ func UpdateMakefileShortcut(path, cmdName, shortcut string) error {
 
 	switch {
 	case docIdx >= 0:
-		lines[docIdx] = applyShortcutToDocLine(lines[docIdx], shortcut)
+		prefix, state, _ := parseDocLine(lines[docIdx], cmdName)
+		mutate(&state)
+		lines[docIdx] = renderDocLine(prefix, state)
 	case targetIdx >= 0:
-		newDoc := "## " + cmdName + ":"
-		if shortcut != "" {
-			newDoc += " [sc=" + shortcut + "]"
-		}
-		lines = append(lines[:targetIdx], append([]string{newDoc}, lines[targetIdx:]...)...)
+		var state DocTagState
+		mutate(&state)
+		lines = append(lines[:targetIdx], append([]string{renderDocLine("## "+cmdName+":", state)}, lines[targetIdx:]...)...)
 	default:
 		return fmt.Errorf("target %q not found in %s", cmdName, path)
 	}
@@ -219,65 +343,71 @@ func UpdateMakefileShortcut(path, cmdName, shortcut string) error {
 	return os.Rename(tmp, path)
 }
 
-// applyShortcutToDocLine returns the `## name: desc ...` line with its
-// `[sc=X]` tag set to shortcut. Any pre-existing shortcut tag is removed.
-// A trailing `[stream]` / `[no-stream]` tag is preserved at the end.
-func applyShortcutToDocLine(line, shortcut string) string {
-	trimmed := strings.TrimRight(line, " \t")
-
-	streamSuffix := ""
-	lower := strings.ToLower(trimmed)
-	switch {
-	case strings.HasSuffix(lower, "[stream]"):
-		streamSuffix = trimmed[len(trimmed)-len("[stream]"):]
-		trimmed = strings.TrimRight(trimmed[:len(trimmed)-len("[stream]")], " \t")
-	case strings.HasSuffix(lower, "[no-stream]"):
-		streamSuffix = trimmed[len(trimmed)-len("[no-stream]"):]
-		trimmed = strings.TrimRight(trimmed[:len(trimmed)-len("[no-stream]")], " \t")
+// ReadDocTagState parses path and returns the tag state declared on the
+// `## cmdName: ...` line. Missing docstring returns a zero DocTagState and
+// ok=false. Useful for UIs that want to reflect the current source-of-truth
+// without rebuilding the full Command slice.
+func ReadDocTagState(path, cmdName string) (DocTagState, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return DocTagState{}, false, err
 	}
-
-	trimmed = scTagAnywhereRe.ReplaceAllString(trimmed, "")
-	trimmed = strings.TrimRight(trimmed, " \t")
-
-	if shortcut != "" {
-		trimmed += " [sc=" + shortcut + "]"
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	for _, line := range lines {
+		if _, state, ok := parseDocLine(line, cmdName); ok {
+			return state, true, nil
+		}
 	}
-	if streamSuffix != "" {
-		trimmed += " " + streamSuffix
-	}
-	return trimmed
+	return DocTagState{}, false, nil
 }
 
-// extractShortcutTag looks for `[sc=X]` or `[shortcut=X]` in desc. An empty
-// value (e.g. `[sc=]`) means "disable auto-shortcut" and returns set=true,
-// shortcut="". When the tag is absent, set=false and the caller falls back to
-// auto-inference.
-func extractShortcutTag(desc string) (clean string, shortcut string, set bool) {
-	m := shortcutTagRe.FindStringSubmatchIndex(desc)
-	if m == nil {
-		return desc, "", false
-	}
-	// m[2]/m[3] = capture group 1 (the value between `=` and `]`).
-	val := strings.TrimSpace(desc[m[2]:m[3]])
-	cleaned := strings.TrimSpace(desc[:m[0]])
-	// Accept a single letter/digit/symbol as shortcut; silently drop longer strings.
-	if len(val) > 1 {
-		val = val[:1]
-	}
-	return cleaned, val, true
+// UpdateMakefileShortcut rewrites path so the `## cmdName: ...` docstring
+// carries shortcut as a `[sc=X]` tag. Passing "" removes the tag.
+func UpdateMakefileShortcut(path, cmdName, shortcut string) error {
+	return mutateMakefileDocLine(path, cmdName, func(s *DocTagState) {
+		if shortcut == "" {
+			s.HasShortcut = false
+			s.Shortcut = ""
+			return
+		}
+		s.HasShortcut = true
+		s.Shortcut = shortcut
+	})
 }
 
-// extractStreamTag looks for `[stream]` or `[no-stream]` at the end of desc and
-// returns the cleaned description plus the parsed flag.
-func extractStreamTag(desc string) (clean string, stream bool, set bool) {
-	lower := strings.ToLower(desc)
-	switch {
-	case strings.HasSuffix(lower, "[stream]"):
-		return strings.TrimSpace(desc[:len(desc)-len("[stream]")]), true, true
-	case strings.HasSuffix(lower, "[no-stream]"):
-		return strings.TrimSpace(desc[:len(desc)-len("[no-stream]")]), false, true
-	}
-	return desc, false, false
+// UpdateMakefileFlag toggles a presence-only flag (`stream`, `no-stream`,
+// `confirm`, `no-confirm`) on the doc line of cmdName. on=false removes the
+// flag; on=true adds it and clears the mutually-exclusive partner so the pair
+// never both exist.
+func UpdateMakefileFlag(path, cmdName, flag string, on bool) error {
+	return mutateMakefileDocLine(path, cmdName, func(s *DocTagState) {
+		switch flag {
+		case "stream":
+			if on {
+				s.StreamSet, s.Stream = true, true
+			} else if s.StreamSet && s.Stream {
+				s.StreamSet, s.Stream = false, false
+			}
+		case "no-stream":
+			if on {
+				s.StreamSet, s.Stream = true, false
+			} else if s.StreamSet && !s.Stream {
+				s.StreamSet = false
+			}
+		case "confirm":
+			if on {
+				s.Confirm, s.NoConfirm = true, false
+			} else {
+				s.Confirm = false
+			}
+		case "no-confirm":
+			if on {
+				s.NoConfirm, s.Confirm = true, false
+			} else {
+				s.NoConfirm = false
+			}
+		}
+	})
 }
 
 var streamRecipeRe = regexp.MustCompile(

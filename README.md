@@ -71,6 +71,9 @@ hidden entirely via config — see [Layout](#layout-1).
 | `ctrl+c` | Cancel running command · second press quits |
 | `ctrl+e` | Expand output popup |
 | `ctrl+o` | Expand current command's Makefile section |
+| `ctrl+k` | Edit the selected command's shortcut (next keypress binds it) |
+| `ctrl+t` | Open the tag editor popup for the selected command |
+| `pgup` / `pgdn` | Scroll the center Makefile preview up / down |
 | `[` / `]` | Shrink / grow output panel |
 | `{` / `}` | Shrink / grow sidebar |
 
@@ -243,18 +246,49 @@ Tags live at the end of the description and stack in any order.
 |---|---|
 | `[stream]` | Mark as long-running log stream (LIVE badge, ctrl+c cancels). |
 | `[no-stream]` | Disable auto-detection even if the recipe matches a follow pattern. |
+| `[confirm]` | Always show the confirmation modal before running, in any env. |
+| `[no-confirm]` | Never show the confirmation modal — even in `staging` / `prod`. |
 | `[sc=X]` or `[shortcut=X]` | Assign keyboard shortcut `X` (single char). |
 | `[sc=]` | Disable shortcut entirely (renders with `⬢` icon). |
 
 ```make
-## deploy-prod: Deploy to production [sc=D]
+## deploy-prod: Deploy to production [confirm] [sc=D]
 deploy-prod:
 	./scripts/deploy.sh prod
 
-## live-logs: Follow service logs [stream] [sc=L]
+## live-logs: Follow service logs [stream] [no-confirm] [sc=L]
 live-logs:
 	docker logs -f my-service
 ```
+
+### Confirmation modal
+
+cast shows a confirmation prompt before running a command when any of the
+following is true (checked top to bottom — first match wins):
+
+1. The command has `[no-confirm]` → **never** prompts, even in prod.
+2. The command has `[confirm]` → **always** prompts, in any env.
+3. The active env is `staging` or `prod` → prompts by default.
+4. Otherwise → runs immediately.
+
+Use `[no-confirm]` for log-streaming targets and other read-only commands
+you run dozens of times a day in prod. Use `[confirm]` for destructive
+dev-env commands (`db-reset`, `wipe-cache`, etc.) where the env check alone
+wouldn't catch a mistake.
+
+### Editing tags from the TUI
+
+Two keybindings let you manage the Makefile doc line without leaving cast —
+both write directly to the `##` comment and preserve unrelated tags:
+
+- `ctrl+k` — enter shortcut-edit mode for the selected command; the next
+  keypress becomes its new `[sc=X]` tag (`backspace` clears it, `esc`
+  cancels).
+- `ctrl+t` — open a popup with checkbox toggles for `[stream]`,
+  `[no-stream]`, `[confirm]`, `[no-confirm]`. Navigate with `↑` / `↓`,
+  toggle with `space` / `⏎`, `K` jumps to the shortcut editor, `esc` closes.
+  Mutually-exclusive tags (stream ↔ no-stream, confirm ↔ no-confirm) are
+  kept consistent automatically.
 
 ### Auto-inference
 

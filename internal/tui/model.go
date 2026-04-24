@@ -19,6 +19,7 @@ import (
 	"github.com/Cerebellum-ITM/cast/internal/runner"
 	"github.com/Cerebellum-ITM/cast/internal/source"
 	"github.com/Cerebellum-ITM/cast/internal/tui/splash"
+	"github.com/Cerebellum-ITM/cast/internal/tui/views"
 )
 
 // Tab identifies the active top-level tab.
@@ -145,6 +146,12 @@ type Model struct {
 
 	// Shortcut edit mode (single-key capture for the selected command).
 	shortcutEditMode bool
+
+	// Tag editor popup (toggles for [stream]/[no-stream]/[confirm]/[no-confirm]).
+	showTagsPopup  bool
+	tagsPopupSel   int
+	tagsPopupState source.DocTagState
+	tagsPopupName  string
 
 	// Output expand popup
 	showOutputExpand bool
@@ -527,6 +534,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.shortcutEditMode {
 		return m.handleShortcutEditKey(msg)
 	}
+	if m.showTagsPopup {
+		return m.handleTagsPopupKey(msg)
+	}
 	if m.activeTab == TabEnv {
 		return m.handleEnvKey(msg)
 	}
@@ -624,6 +634,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.activeTab == TabCommands && len(m.filtered) > 0 {
 			m.shortcutEditMode = true
 			m.activeTab = TabCommands
+		}
+		return m, nil
+	case k == m.keys.EditTags:
+		if m.activeTab == TabCommands && len(m.filtered) > 0 {
+			return m.openTagsPopup()
 		}
 		return m, nil
 	case k == m.keys.MakefilePageUp:
@@ -734,6 +749,109 @@ func (m *Model) setSelectedShortcut(newKey string) {
 		_ = source.UpdateMakefileShortcut(m.makefilePath, targetName, newKey)
 		m.makefileLines = loadFileLines(m.makefilePath)
 	}
+}
+
+// openTagsPopup loads the current tag state for the selected command from the
+// Makefile and shows the popup. If the file can't be parsed, a zero state is
+// used so the user can still add tags from scratch.
+func (m Model) openTagsPopup() (tea.Model, tea.Cmd) {
+	if len(m.filtered) == 0 || m.selected >= len(m.filtered) {
+		return m, nil
+	}
+	name := m.filtered[m.selected].Name
+	state, _, _ := source.ReadDocTagState(m.makefilePath, name)
+	m.tagsPopupName = name
+	m.tagsPopupState = state
+	m.tagsPopupSel = 0
+	m.showTagsPopup = true
+	return m, nil
+}
+
+// handleTagsPopupKey routes input while the tag-editor popup is open.
+func (m Model) handleTagsPopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := msg.String()
+	n := len(views.TagFlagItems)
+	switch k {
+	case "esc", m.keys.EditTags:
+		m.showTagsPopup = false
+		return m, nil
+	case "up", "k":
+		if m.tagsPopupSel > 0 {
+			m.tagsPopupSel--
+		}
+		return m, nil
+	case "down", "j":
+		if m.tagsPopupSel < n-1 {
+			m.tagsPopupSel++
+		}
+		return m, nil
+	case " ", "enter":
+		return m.toggleSelectedTag()
+	case "K":
+		m.showTagsPopup = false
+		m.shortcutEditMode = true
+		return m, nil
+	}
+	return m, nil
+}
+
+// toggleSelectedTag flips the tag currently highlighted in the popup, persists
+// the change to the Makefile, and reloads in-memory state so both the popup
+// and the sidebar reflect the new source of truth.
+func (m Model) toggleSelectedTag() (tea.Model, tea.Cmd) {
+	if m.tagsPopupSel < 0 || m.tagsPopupSel >= len(views.TagFlagItems) {
+		return m, nil
+	}
+	item := views.TagFlagItems[m.tagsPopupSel]
+	currentlyOn := flagOn(m.tagsPopupState, item.Flag)
+	newOn := !currentlyOn
+
+	if m.makefilePath != "" && m.tagsPopupName != "" {
+		if err := source.UpdateMakefileFlag(m.makefilePath, m.tagsPopupName, item.Flag, newOn); err == nil {
+			m.makefileLines = loadFileLines(m.makefilePath)
+		}
+		if state, _, err := source.ReadDocTagState(m.makefilePath, m.tagsPopupName); err == nil {
+			m.tagsPopupState = state
+			// Reflect the flag change on the in-memory command so runtime
+			// behavior (triggerRun, Stream dispatch) matches the source.
+			m.applyDocStateToCommand(m.tagsPopupName, state)
+			m.filtered = filterCommands(m.commands, m.search)
+		}
+	}
+	return m, nil
+}
+
+// applyDocStateToCommand copies the runtime-relevant fields (Confirm,
+// NoConfirm, Stream) from the parsed doc state onto the matching command.
+// Shortcut is intentionally left alone so .cast.toml overrides survive.
+func (m *Model) applyDocStateToCommand(name string, state source.DocTagState) {
+	for i := range m.commands {
+		if m.commands[i].Name != name {
+			continue
+		}
+		m.commands[i].Confirm = state.Confirm
+		m.commands[i].NoConfirm = state.NoConfirm
+		if state.StreamSet {
+			m.commands[i].Stream = state.Stream
+		}
+		return
+	}
+}
+
+// flagOn mirrors the popup's checkbox-state logic so the handler and the view
+// stay in agreement about what "on" means for each flag.
+func flagOn(s source.DocTagState, flag string) bool {
+	switch flag {
+	case "stream":
+		return s.StreamSet && s.Stream
+	case "no-stream":
+		return s.StreamSet && !s.Stream
+	case "confirm":
+		return s.Confirm
+	case "no-confirm":
+		return s.NoConfirm
+	}
+	return false
 }
 
 // makefilePageStep returns how many lines pgup/pgdown should shift the preview.
@@ -1245,7 +1363,14 @@ func (m Model) triggerRun() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	cmd := m.filtered[m.selected]
-	if m.env != config.EnvLocal || cmd.Confirm {
+	// Confirmation precedence (top wins):
+	//   1. [no-confirm] tag in the Makefile   → never ask, even in prod/staging
+	//   2. [confirm] tag                      → always ask, any env
+	//   3. env != dev                         → ask by default
+	switch {
+	case cmd.NoConfirm:
+		// fall through to dispatch
+	case cmd.Confirm, m.env != config.EnvLocal:
 		m.showConfirm = true
 		return m, nil
 	}

@@ -28,6 +28,7 @@ type KeyMap struct {
 	SidebarWider     string // grow the left sidebar
 	SidebarNarrower  string // shrink the left sidebar
 	EditShortcut     string // enter single-key shortcut edit mode for the selected command
+	EditTags         string // open the tag-editor popup for the selected command
 	MakefilePageUp   string // scroll the center Makefile preview up one page
 	MakefilePageDown string // scroll the center Makefile preview down one page
 }
@@ -54,6 +55,7 @@ var DefaultKeyMap = KeyMap{
 	SidebarWider:     "}",
 	SidebarNarrower:  "{",
 	EditShortcut:     "ctrl+k",
+	EditTags:         "ctrl+t",
 	MakefilePageUp:   "pgup",
 	MakefilePageDown: "pgdown",
 }
