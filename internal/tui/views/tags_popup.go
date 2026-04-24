@@ -66,10 +66,10 @@ func TagsPopup(p Palette, props TagsPopupProps) string {
 	rows = append(rows, "")
 	shortcutBadge := RenderKeyBadge(p, props.State.Shortcut)
 	shortcutRow := Style(p.FgDim, false).Render("shortcut: ") + shortcutBadge +
-		Style(p.FgMuted, false).Render("   press K to edit")
+		Style(p.FgMuted, false).Render("   press ctrl+k to edit")
 	rows = append(rows, shortcutRow)
 
-	rows = append(rows, "", Style(p.FgMuted, false).Render("↑↓ nav  space/⏎ toggle  K shortcut  esc close"))
+	rows = append(rows, "", Style(p.FgMuted, false).Render("↑↓ nav  space/⏎ toggle  ctrl+k shortcut  esc close"))
 
 	inner := strings.Join(rows, "\n")
 	return lipgloss.NewStyle().

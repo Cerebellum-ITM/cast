@@ -285,8 +285,9 @@ both write directly to the `##` comment and preserve unrelated tags:
   keypress becomes its new `[sc=X]` tag (`backspace` clears it, `esc`
   cancels).
 - `ctrl+t` — open a popup with checkbox toggles for `[stream]`,
-  `[no-stream]`, `[confirm]`, `[no-confirm]`. Navigate with `↑` / `↓`,
-  toggle with `space` / `⏎`, `K` jumps to the shortcut editor, `esc` closes.
+  `[no-stream]`, `[confirm]`, `[no-confirm]`. Navigate with `↑` / `↓`
+  (also `j` / `k`), toggle with `space` / `⏎`, `ctrl+k` jumps to the
+  shortcut editor, `esc` closes.
   Mutually-exclusive tags (stream ↔ no-stream, confirm ↔ no-confirm) are
   kept consistent automatically.
 

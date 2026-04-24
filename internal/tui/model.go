@@ -787,7 +787,7 @@ func (m Model) handleTagsPopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case " ", "enter":
 		return m.toggleSelectedTag()
-	case "K":
+	case m.keys.EditShortcut:
 		m.showTagsPopup = false
 		m.shortcutEditMode = true
 		return m, nil
