@@ -12,15 +12,16 @@ import (
 
 // CommandsProps holds data for the center commands-detail panel.
 type CommandsProps struct {
-	Cmd            *source.Command // nil if no commands loaded
-	MakefileLines  []string
-	MakefilePath   string
-	MakefileOffset int
-	Running        bool
-	RunProgress    float64
-	Env            int // 0=local, 1=staging, 2=prod
-	Width          int
-	Height         int
+	Cmd             *source.Command // nil if no commands loaded
+	MakefileLines   []string
+	MakefilePath    string
+	MakefileOffset  int
+	Running         bool
+	RunProgress     float64
+	Env             int // 0=local, 1=staging, 2=prod
+	ShortcutEditing bool
+	Width           int
+	Height          int
 }
 
 // Commands renders the center panel when the commands tab is active.
@@ -95,6 +96,13 @@ func renderCommandHeader(p Palette, props CommandsProps) (string, int) {
 		Pad(2) + descRow,
 		"",
 		Pad(2) + cmdRow,
+	}
+
+	if props.ShortcutEditing {
+		prompt := Style(p.Accent, true).Render("⌨ press a key to bind as shortcut") +
+			Style(p.FgDim, false).Render("  ·  backspace clears · esc cancels")
+		current := Style(p.FgDim, false).Render("current: ") + RenderKeyBadge(p, cmd.Shortcut)
+		lines = append(lines, "", Pad(2)+prompt, Pad(2)+current)
 	}
 
 	if props.Running {

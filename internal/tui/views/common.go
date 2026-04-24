@@ -12,10 +12,10 @@ import (
 // Palette holds all resolved color tokens for a theme + environment combination.
 type Palette struct {
 	Bg, BgPanel, BgDeep, BgSelected, BgHover color.Color
-	Fg, FgDim, FgMuted                        color.Color
-	Border, Accent                             color.Color
-	Cyan, Green, Yellow, Orange, Red           color.Color
-	StreamAccent                               color.Color
+	Fg, FgDim, FgMuted                       color.Color
+	Border, Accent                           color.Color
+	Cyan, Green, Yellow, Orange, Red         color.Color
+	StreamAccent                             color.Color
 }
 
 // Style creates a simple foreground lipgloss style.

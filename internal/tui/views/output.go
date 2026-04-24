@@ -92,7 +92,11 @@ func Output(p Palette, props OutputProps) string {
 	recentRows := renderRecentRows(p, props.History, w, recentMax)
 	recentH := len(recentRows)
 
-	termH := h - 2 - progH - recentH // 2 = header + sep
+	hintSep := SepLine(p, w)
+	hintRow := renderOutputHintsRow(p, w)
+	hintH := 2 // sep + hint row
+
+	termH := h - 2 - progH - recentH - hintH // 2 = header + sep
 	if termH < 1 {
 		termH = 1
 	}
@@ -104,10 +108,38 @@ func Output(p Palette, props OutputProps) string {
 		allRows = append(allRows, progressRow, emptyRow)
 	}
 	allRows = append(allRows, termRows...)
+	allRows = append(allRows, hintSep, hintRow)
 	allRows = append(allRows, recentRows...)
 
 	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgDeep).
 		Render(strings.Join(allRows, "\n"))
+}
+
+// renderOutputHintsRow mirrors the sidebar hint row visually: accent-colored
+// key glyphs followed by a dim label, laid out on a single line capped to w.
+func renderOutputHintsRow(p Palette, w int) string {
+	hints := [][2]string{{"ctrl+e", "expand"}, {"ctrl+c", "stop"}}
+	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel)
+	avail := w - 2
+
+	var parts []string
+	used := 0
+	for _, h := range hints {
+		key := Style(p.Accent, true).Render("[" + h[0] + "]")
+		lbl := Style(p.FgDim, false).Render(h[1])
+		part := key + " " + lbl
+		partW := VisWidth(part)
+		gap := 0
+		if len(parts) > 0 {
+			gap = 1
+		}
+		if used+gap+partW > avail {
+			break
+		}
+		parts = append(parts, part)
+		used += gap + partW
+	}
+	return rowStyle.Render(strings.Join(parts, " "))
 }
 
 func renderTermRows(p Palette, output []string, w, h int) []string {

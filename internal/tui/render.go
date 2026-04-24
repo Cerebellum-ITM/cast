@@ -327,15 +327,16 @@ func (m Model) renderCenter(p views.Palette, w, h int) string {
 			cmd = &c
 		}
 		return views.Commands(p, views.CommandsProps{
-			Cmd:            cmd,
-			MakefileLines:  m.makefileLines,
-			MakefilePath:   m.makefilePath,
-			MakefileOffset: m.makefileOffset,
-			Running:        m.running,
-			RunProgress:    m.runProgress,
-			Env:            int(m.env),
-			Width:          w,
-			Height:         h,
+			Cmd:             cmd,
+			MakefileLines:   m.makefileLines,
+			MakefilePath:    m.makefilePath,
+			MakefileOffset:  m.makefileOffset,
+			Running:         m.running,
+			RunProgress:     m.runProgress,
+			Env:             int(m.env),
+			ShortcutEditing: m.shortcutEditMode,
+			Width:           w,
+			Height:          h,
 		})
 	}
 }

@@ -107,14 +107,14 @@ type Model struct {
 	makefileOffset int
 
 	// .env tab state
-	envFile        *source.EnvFile
-	envFilePath    string
-	selectedEnvKey int
-	showSecrets    bool
-	envEditMode    bool
-	envEditBuffer  string
-	envSearchInput textinput.Model
-	envFocus       int // 0=sidebar, 1=history panel
+	envFile         *source.EnvFile
+	envFilePath     string
+	selectedEnvKey  int
+	showSecrets     bool
+	envEditMode     bool
+	envEditBuffer   string
+	envSearchInput  textinput.Model
+	envFocus        int // 0=sidebar, 1=history panel
 	envHistoryItems []db.EnvChange
 	envHistorySel   int
 	envNewMode      bool   // true when adding a new variable
@@ -142,6 +142,9 @@ type Model struct {
 	streaming   bool               // current run is a long-lived log stream
 	livePulse   bool               // flipped each tick for LIVE dot animation
 	interrupted bool               // current/last run was manually canceled
+
+	// Shortcut edit mode (single-key capture for the selected command).
+	shortcutEditMode bool
 
 	// Output expand popup
 	showOutputExpand bool
@@ -193,21 +196,21 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 	}
 
 	return Model{
-		state:          StateSplash,
-		keys:           DefaultKeyMap,
-		splashModel:    splash.New(cfg.Theme),
-		commands:       commands,
-		filtered:       commands,
-		historyMax:     cfg.HistoryMax,
-		db:             database,
-		env:            cfg.Env,
-		theme:          cfg.Theme,
-		searchInput:    si,
-		envSearchInput: esi,
-		spinner:        sp,
-		progressBar:    pb,
-		makefileLines:  loadFileLines(cfg.SourcePath),
-		makefilePath:   cfg.SourcePath,
+		state:           StateSplash,
+		keys:            DefaultKeyMap,
+		splashModel:     splash.New(cfg.Theme),
+		commands:        commands,
+		filtered:        commands,
+		historyMax:      cfg.HistoryMax,
+		db:              database,
+		env:             cfg.Env,
+		theme:           cfg.Theme,
+		searchInput:     si,
+		envSearchInput:  esi,
+		spinner:         sp,
+		progressBar:     pb,
+		makefileLines:   loadFileLines(cfg.SourcePath),
+		makefilePath:    cfg.SourcePath,
 		envFile:         envFile,
 		envFilePath:     cfg.EnvFilePath,
 		outputWidthPct:  cfg.OutputWidthPct,
@@ -521,6 +524,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.showMakefileExpand {
 		return m.handleMakefileExpand(msg)
 	}
+	if m.shortcutEditMode {
+		return m.handleShortcutEditKey(msg)
+	}
 	if m.activeTab == TabEnv {
 		return m.handleEnvKey(msg)
 	}
@@ -614,6 +620,30 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.sidebarWidthPct = next
 		m.recalcLayout()
 		return m, nil
+	case k == m.keys.EditShortcut:
+		if m.activeTab == TabCommands && len(m.filtered) > 0 {
+			m.shortcutEditMode = true
+			m.activeTab = TabCommands
+		}
+		return m, nil
+	case k == m.keys.MakefilePageUp:
+		step := m.makefilePageStep()
+		m.makefileOffset -= step
+		if m.makefileOffset < 0 {
+			m.makefileOffset = 0
+		}
+		return m, nil
+	case k == m.keys.MakefilePageDown:
+		step := m.makefilePageStep()
+		maxOff := len(m.makefileLines) - step
+		if maxOff < 0 {
+			maxOff = 0
+		}
+		m.makefileOffset += step
+		if m.makefileOffset > maxOff {
+			m.makefileOffset = maxOff
+		}
+		return m, nil
 	case k == m.keys.SidebarNarrower:
 		min := 15
 		if !m.showCenter {
@@ -651,6 +681,69 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.filtered = filterCommands(m.commands, m.search)
 	m.selected = 0
 	return m, cmd
+}
+
+// handleShortcutEditKey captures the next keypress as the new shortcut for the
+// currently selected command. Esc cancels; backspace/delete clears. Only
+// single-character keys are accepted; modifier combos and named keys are ignored.
+func (m Model) handleShortcutEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := msg.String()
+	switch k {
+	case "esc":
+		m.shortcutEditMode = false
+		return m, nil
+	case "backspace", "delete":
+		m.setSelectedShortcut("")
+		m.shortcutEditMode = false
+		return m, nil
+	}
+	if len(k) != 1 {
+		return m, nil
+	}
+	m.setSelectedShortcut(k)
+	m.shortcutEditMode = false
+	return m, nil
+}
+
+// setSelectedShortcut assigns newKey as the shortcut of the currently selected
+// command. If another command already owns newKey, its shortcut is cleared so
+// the mapping stays unique. Pass "" to remove the shortcut. The change is
+// persisted back to the Makefile as a `[sc=X]` tag on the command's `##`
+// docstring so it survives across sessions.
+func (m *Model) setSelectedShortcut(newKey string) {
+	if len(m.filtered) == 0 || m.selected >= len(m.filtered) {
+		return
+	}
+	targetName := m.filtered[m.selected].Name
+	var displaced string
+	for i := range m.commands {
+		if newKey != "" && m.commands[i].Shortcut == newKey && m.commands[i].Name != targetName {
+			displaced = m.commands[i].Name
+			m.commands[i].Shortcut = ""
+		}
+		if m.commands[i].Name == targetName {
+			m.commands[i].Shortcut = newKey
+		}
+	}
+	m.filtered = filterCommands(m.commands, m.search)
+
+	if m.makefilePath != "" {
+		if displaced != "" {
+			_ = source.UpdateMakefileShortcut(m.makefilePath, displaced, "")
+		}
+		_ = source.UpdateMakefileShortcut(m.makefilePath, targetName, newKey)
+		m.makefileLines = loadFileLines(m.makefilePath)
+	}
+}
+
+// makefilePageStep returns how many lines pgup/pgdown should shift the preview.
+// Scaled to roughly half the center panel height so scrolling feels proportional.
+func (m Model) makefilePageStep() int {
+	step := (m.height - headerH - statusH) / 2
+	if step < 5 {
+		step = 5
+	}
+	return step
 }
 
 func (m Model) handleConfirmModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

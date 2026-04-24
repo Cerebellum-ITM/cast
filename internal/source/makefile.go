@@ -2,6 +2,7 @@ package source
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -155,6 +156,97 @@ func (m *MakefileSource) Load() ([]Command, error) {
 // shortcutTagRe matches `[sc=X]` or `[shortcut=X]` (X = single char or empty
 // for "no shortcut"). Trailing whitespace-tolerant.
 var shortcutTagRe = regexp.MustCompile(`(?i)\s*\[(?:sc|shortcut)=([^\]]*)\]\s*$`)
+
+// scTagAnywhereRe matches `[sc=X]` or `[shortcut=X]` with surrounding spaces,
+// wherever it appears in a line. Used to strip a pre-existing tag before we
+// append an updated one.
+var scTagAnywhereRe = regexp.MustCompile(`(?i)\s*\[(?:sc|shortcut)=[^\]]*\]`)
+
+// UpdateMakefileShortcut rewrites path so the `## cmdName: ...` docstring
+// carries the given shortcut as a `[sc=X]` tag. Passing an empty shortcut
+// removes the tag. If no docstring exists for cmdName, a minimal one is
+// inserted above the target line.
+//
+// A trailing `[stream]` / `[no-stream]` tag on the docstring is preserved and
+// kept at the end so the Makefile parser still sees it.
+func UpdateMakefileShortcut(path, cmdName, shortcut string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	trailingNL := strings.HasSuffix(string(data), "\n")
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+
+	docIdx, targetIdx := -1, -1
+	for i, line := range lines {
+		if docIdx == -1 && strings.HasPrefix(line, "## ") {
+			rest := strings.TrimPrefix(line, "## ")
+			if idx := strings.Index(rest, ":"); idx != -1 {
+				if strings.TrimSpace(rest[:idx]) == cmdName {
+					docIdx = i
+				}
+			}
+		}
+		if targetIdx == -1 && !strings.HasPrefix(line, "\t") && !strings.HasPrefix(line, " ") {
+			t := strings.TrimSpace(line)
+			if t == cmdName+":" || strings.HasPrefix(t, cmdName+":") || strings.HasPrefix(t, cmdName+" ") {
+				targetIdx = i
+			}
+		}
+	}
+
+	switch {
+	case docIdx >= 0:
+		lines[docIdx] = applyShortcutToDocLine(lines[docIdx], shortcut)
+	case targetIdx >= 0:
+		newDoc := "## " + cmdName + ":"
+		if shortcut != "" {
+			newDoc += " [sc=" + shortcut + "]"
+		}
+		lines = append(lines[:targetIdx], append([]string{newDoc}, lines[targetIdx:]...)...)
+	default:
+		return fmt.Errorf("target %q not found in %s", cmdName, path)
+	}
+
+	out := strings.Join(lines, "\n")
+	if trailingNL {
+		out += "\n"
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(out), 0o644); err != nil {
+		return fmt.Errorf("write makefile: %w", err)
+	}
+	return os.Rename(tmp, path)
+}
+
+// applyShortcutToDocLine returns the `## name: desc ...` line with its
+// `[sc=X]` tag set to shortcut. Any pre-existing shortcut tag is removed.
+// A trailing `[stream]` / `[no-stream]` tag is preserved at the end.
+func applyShortcutToDocLine(line, shortcut string) string {
+	trimmed := strings.TrimRight(line, " \t")
+
+	streamSuffix := ""
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasSuffix(lower, "[stream]"):
+		streamSuffix = trimmed[len(trimmed)-len("[stream]"):]
+		trimmed = strings.TrimRight(trimmed[:len(trimmed)-len("[stream]")], " \t")
+	case strings.HasSuffix(lower, "[no-stream]"):
+		streamSuffix = trimmed[len(trimmed)-len("[no-stream]"):]
+		trimmed = strings.TrimRight(trimmed[:len(trimmed)-len("[no-stream]")], " \t")
+	}
+
+	trimmed = scTagAnywhereRe.ReplaceAllString(trimmed, "")
+	trimmed = strings.TrimRight(trimmed, " \t")
+
+	if shortcut != "" {
+		trimmed += " [sc=" + shortcut + "]"
+	}
+	if streamSuffix != "" {
+		trimmed += " " + streamSuffix
+	}
+	return trimmed
+}
 
 // extractShortcutTag looks for `[sc=X]` or `[shortcut=X]` in desc. An empty
 // value (e.g. `[sc=]`) means "disable auto-shortcut" and returns set=true,
