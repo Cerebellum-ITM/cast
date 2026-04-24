@@ -17,6 +17,7 @@ type KeyMap struct {
 	RunAlt        string
 	RerunLast     string
 	ToggleSecrets string
+	ExpandOutput  string
 }
 
 // DefaultKeyMap is the out-of-the-box key configuration.
@@ -35,4 +36,5 @@ var DefaultKeyMap = KeyMap{
 	RunAlt:        "r",
 	RerunLast:     "ctrl+r",
 	ToggleSecrets: "s",
+	ExpandOutput:  "ctrl+e",
 }

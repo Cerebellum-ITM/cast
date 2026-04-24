@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Cerebellum-ITM/cast/internal/runner"
 )
@@ -90,12 +91,14 @@ func renderTermRows(p Palette, output []string, w, h int) []string {
 	if len(output) > h {
 		start = len(output) - h
 	}
+	contentW := w - 2 // subtract horizontal padding
 	for i, l := range output[start:] {
 		if i >= h {
 			break
 		}
+		line := ansi.Truncate(ColorOutputLine(p, l), contentW, "")
 		rows[i] = lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgDeep).
-			Render(ColorOutputLine(p, l))
+			Render(line)
 	}
 	return rows
 }

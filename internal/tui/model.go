@@ -97,6 +97,10 @@ type Model struct {
 	hasLastRun  bool
 	streamCh    <-chan tea.Msg
 
+	// Output expand popup
+	showOutputExpand bool
+	outputExpandOff  int
+
 	// Layout
 	width  int
 	height int
@@ -240,6 +244,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.showConfirm {
 		return m.handleConfirmModal(msg)
 	}
+	if m.showOutputExpand {
+		return m.handleExpandedOutput(msg)
+	}
 	if m.searchInput.Focused() {
 		return m.handleSearchKey(msg)
 	}
@@ -279,6 +286,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.activeTab == TabEnv {
 			m.showSecrets = !m.showSecrets
 		}
+	case k == m.keys.ExpandOutput:
+		return m.toggleOutputExpand()
 	// Quick shortcuts
 	case k == "b":
 		return m.runByName("build")
@@ -328,6 +337,67 @@ func (m Model) handleConfirmModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.dispatchRun()
 	}
 	return m, nil
+}
+
+func (m Model) handleExpandedOutput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	visH := m.outputExpandVisH()
+	maxOff := len(m.output) - visH
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	switch msg.String() {
+	case "esc", m.keys.ExpandOutput:
+		m.showOutputExpand = false
+	case "up", "k":
+		if m.outputExpandOff > 0 {
+			m.outputExpandOff--
+		}
+	case "down", "j":
+		if m.outputExpandOff < maxOff {
+			m.outputExpandOff++
+		}
+	case "pgup", "ctrl+b":
+		m.outputExpandOff -= visH
+		if m.outputExpandOff < 0 {
+			m.outputExpandOff = 0
+		}
+	case "pgdown", "ctrl+f", " ":
+		m.outputExpandOff += visH
+		if m.outputExpandOff > maxOff {
+			m.outputExpandOff = maxOff
+		}
+	case "g":
+		m.outputExpandOff = 0
+	case "G":
+		m.outputExpandOff = maxOff
+	}
+	return m, nil
+}
+
+func (m Model) toggleOutputExpand() (tea.Model, tea.Cmd) {
+	if m.showOutputExpand {
+		m.showOutputExpand = false
+		return m, nil
+	}
+	m.showOutputExpand = true
+	visH := m.outputExpandVisH()
+	m.outputExpandOff = len(m.output) - visH
+	if m.outputExpandOff < 0 {
+		m.outputExpandOff = 0
+	}
+	return m, nil
+}
+
+func (m Model) outputExpandVisH() int {
+	popupH := m.height - 4
+	if popupH < 10 {
+		popupH = 10
+	}
+	visH := popupH - 6
+	if visH < 1 {
+		visH = 1
+	}
+	return visH
 }
 
 // --- run dispatch ------------------------------------------------------------

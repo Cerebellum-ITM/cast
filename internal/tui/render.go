@@ -45,6 +45,19 @@ func (m Model) renderMain() string {
 		return views.OverlayCenter(full, box)
 	}
 
+	if m.showOutputExpand {
+		popupW := m.width - 8
+		if popupW < 40 {
+			popupW = 40
+		}
+		popupH := m.height - 4
+		if popupH < 10 {
+			popupH = 10
+		}
+		box := views.ExpandedOutput(p, m.output, m.outputExpandOff, popupW, popupH, m.lastRunCmd)
+		return views.OverlayCenter(full, box)
+	}
+
 	return full
 }
 
