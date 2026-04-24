@@ -28,6 +28,8 @@ var TagFlagItems = []struct {
 	{"no-stream", "no-stream", "force non-stream even if auto-detected"},
 	{"confirm", "confirm", "always ask before running (any env)"},
 	{"no-confirm", "no-confirm", "never ask — even in staging/prod"},
+	{"interactive", "interactive", "attach real TTY (python3, bash, psql…)"},
+	{"no-interactive", "no-interactive", "force non-interactive run"},
 }
 
 // TagsPopup renders the popup contents.
@@ -110,6 +112,10 @@ func isFlagOn(s source.DocTagState, flag string) bool {
 		return s.Confirm
 	case "no-confirm":
 		return s.NoConfirm
+	case "interactive":
+		return s.InteractiveSet && s.Interactive
+	case "no-interactive":
+		return s.InteractiveSet && !s.Interactive
 	}
 	return false
 }

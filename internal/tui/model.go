@@ -47,8 +47,9 @@ type SplashDoneMsg struct{}
 
 // RunStartMsg signals that command execution has begun.
 type RunStartMsg struct {
-	Command string
-	Stream  bool
+	Command     string
+	Stream      bool
+	Interactive bool
 }
 
 // RunOutputMsg carries a single streamed output line.
@@ -899,6 +900,14 @@ func (m *Model) applyDocStateToCommand(name string, state source.DocTagState) {
 		if state.StreamSet {
 			m.commands[i].Stream = state.Stream
 		}
+		if state.InteractiveSet {
+			m.commands[i].Interactive = state.Interactive
+			if state.Interactive {
+				m.commands[i].Stream = false
+			}
+		} else {
+			m.commands[i].Interactive = false
+		}
 		return
 	}
 }
@@ -915,6 +924,10 @@ func flagOn(s source.DocTagState, flag string) bool {
 		return s.Confirm
 	case "no-confirm":
 		return s.NoConfirm
+	case "interactive":
+		return s.InteractiveSet && s.Interactive
+	case "no-interactive":
+		return s.InteractiveSet && !s.Interactive
 	}
 	return false
 }
@@ -1447,6 +1460,9 @@ func (m Model) dispatchRun() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	cmdMeta := m.filtered[m.selected]
+	if cmdMeta.Interactive {
+		return m.dispatchInteractive(cmdMeta.Name)
+	}
 	name := cmdMeta.Name
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := runner.StreamRun(ctx, name)
@@ -1455,6 +1471,16 @@ func (m Model) dispatchRun() (tea.Model, tea.Cmd) {
 	stream := cmdMeta.Stream
 	startCmd := func() tea.Msg { return RunStartMsg{Command: name, Stream: stream} }
 	return m, tea.Batch(startCmd, waitNext(ch))
+}
+
+// dispatchInteractive runs the target with the real TTY attached, suspending
+// the Bubble Tea program while the process is alive. No streaming channel is
+// used; the DoneMsg comes from tea.ExecProcess' callback.
+func (m Model) dispatchInteractive(name string) (tea.Model, tea.Cmd) {
+	m.streamCh = nil
+	m.runCancel = nil
+	startCmd := func() tea.Msg { return RunStartMsg{Command: name, Interactive: true} }
+	return m, tea.Sequence(startCmd, runner.InteractiveRun(name))
 }
 
 func waitNext(ch <-chan tea.Msg) tea.Cmd {

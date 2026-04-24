@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"time"
 
@@ -34,6 +35,25 @@ func Run(ctx context.Context, target string) tea.Cmd {
 			Interrupted: errors.Is(ctx.Err(), context.Canceled),
 		}
 	}
+}
+
+// InteractiveRun returns a tea.Cmd that runs "make <target>" with the user's
+// real TTY attached (stdin/stdout/stderr inherited). The Bubble Tea program is
+// paused while the command runs — the alt-screen is released so editors and
+// REPLs (python3, psql, bash, vim…) can take over the terminal — and resumed
+// once the process exits. A DoneMsg is emitted through the Program on finish.
+func InteractiveRun(target string) tea.Cmd {
+	start := time.Now()
+	cmd := exec.Command("make", target)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return DoneMsg{
+			Err:      err,
+			Duration: time.Since(start),
+		}
+	})
 }
 
 // StreamRun starts "make <target>" in a goroutine and returns a channel that

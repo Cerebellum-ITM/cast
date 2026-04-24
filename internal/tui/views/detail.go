@@ -253,6 +253,8 @@ func History(p Palette, records []db.Run, cmds []source.Command, w, h int) strin
 					switch rows[row][2] {
 					case "stream":
 						fg = p.StreamAccent
+					case "interactive":
+						fg = p.Orange
 					case "confirm":
 						fg = p.Yellow
 					case "no-confirm":
@@ -281,6 +283,8 @@ func classifyRun(byName map[string]source.Command, name string) string {
 		return ""
 	}
 	switch {
+	case c.Interactive:
+		return "interactive"
 	case c.Stream:
 		return "stream"
 	case c.NoConfirm:
@@ -341,6 +345,9 @@ func renderFlagChips(p Palette, cmd *source.Command) []string {
 	}
 	if cmd.Stream {
 		chips = append(chips, chip(p.StreamAccent, "stream"))
+	}
+	if cmd.Interactive {
+		chips = append(chips, chip(p.Orange, "interactive"))
 	}
 	return chips
 }

@@ -17,6 +17,7 @@ type Command struct {
 	Confirm   bool   // show confirmation modal regardless of active env
 	NoConfirm bool   // suppress confirmation even in staging/prod (e.g. logs -f)
 	Stream    bool   // long-running log-streaming command (docker logs -f, tail -f…)
+	Interactive bool // needs a real TTY (python3, bash, psql…); suspends the TUI
 }
 
 // EnvVar is a single variable from a .env file.

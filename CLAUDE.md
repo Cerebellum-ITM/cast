@@ -62,6 +62,16 @@ Commands are discovered from `## name: description` comment lines above targets.
 Bare targets without `##` comments are also included (description left empty).
 Tags (`ci`, `go`, `prod`, etc.) and single-letter shortcuts are auto-inferred from the target name.
 
+Per-command flag tags recognized on the `## name: desc …` line:
+
+| Tag | Effect |
+|---|---|
+| `[stream]` / `[no-stream]` | Force long-running log-following mode on/off |
+| `[confirm]` / `[no-confirm]` | Force confirmation modal on/off regardless of env |
+| `[interactive]` / `[no-interactive]` | Run with the real TTY attached: the TUI suspends, the target inherits stdin/stdout/stderr (use for `python3`, `bash`, `psql`, `vim`…), and resumes on exit. Implies `[no-stream]`. |
+| `[sc=X]` / `[shortcut=X]` | Pin a keyboard shortcut letter |
+| `[tags=a,b,c]` | Pin category tags |
+
 ### TUI data flow
 ```
 main.go

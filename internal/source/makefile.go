@@ -99,8 +99,19 @@ func (m *MakefileSource) Load() ([]Command, error) {
 				if meta.state.StreamSet {
 					cmd.Stream = meta.state.Stream
 				}
+				if meta.state.InteractiveSet {
+					cmd.Interactive = meta.state.Interactive
+				}
+				// Interactive implies non-streaming: the subprocess owns the
+				// TTY, so there's no line buffer to tail. Disable stream and
+				// pin it so recipe auto-detection can't flip it back on.
+				pinStream := meta.state.StreamSet
+				if cmd.Interactive {
+					cmd.Stream = false
+					pinStream = true
+				}
 				commands = append(commands, cmd)
-				streamPinned = append(streamPinned, meta.state.StreamSet)
+				streamPinned = append(streamPinned, pinStream)
 				recipeFor = len(commands) - 1
 				skipTarget = name
 			}
@@ -170,6 +181,8 @@ type DocTagState struct {
 	Stream      bool     // value when StreamSet
 	Confirm     bool     // [confirm] present
 	NoConfirm   bool     // [no-confirm] present
+	InteractiveSet bool  // true iff [interactive] or [no-interactive] present
+	Interactive    bool  // value when InteractiveSet
 }
 
 // docMeta is the parse result for the description portion of a doc line.
@@ -208,6 +221,16 @@ func extractDocTags(desc string) docMeta {
 				return m
 			}
 			m.state.Stream, m.state.StreamSet = false, true
+		case lower == "interactive":
+			if m.state.InteractiveSet {
+				return m
+			}
+			m.state.Interactive, m.state.InteractiveSet = true, true
+		case lower == "no-interactive":
+			if m.state.InteractiveSet {
+				return m
+			}
+			m.state.Interactive, m.state.InteractiveSet = false, true
 		case lower == "confirm":
 			if m.state.Confirm || m.state.NoConfirm {
 				return m
@@ -280,6 +303,13 @@ func renderDocTags(state DocTagState) string {
 			tags = append(tags, "[stream]")
 		} else {
 			tags = append(tags, "[no-stream]")
+		}
+	}
+	if state.InteractiveSet {
+		if state.Interactive {
+			tags = append(tags, "[interactive]")
+		} else {
+			tags = append(tags, "[no-interactive]")
 		}
 	}
 	return strings.Join(tags, " ")
@@ -444,6 +474,18 @@ func UpdateMakefileFlag(path, cmdName, flag string, on bool) error {
 				s.NoConfirm, s.Confirm = true, false
 			} else {
 				s.NoConfirm = false
+			}
+		case "interactive":
+			if on {
+				s.InteractiveSet, s.Interactive = true, true
+			} else if s.InteractiveSet && s.Interactive {
+				s.InteractiveSet, s.Interactive = false, false
+			}
+		case "no-interactive":
+			if on {
+				s.InteractiveSet, s.Interactive = true, false
+			} else if s.InteractiveSet && !s.Interactive {
+				s.InteractiveSet = false
 			}
 		}
 	})
