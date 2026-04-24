@@ -62,6 +62,11 @@ type Config struct {
 
 	ConfirmTargets []string // command names that always require confirmation
 
+	// Shortcuts maps command-name → single-char keyboard shortcut. Wins over
+	// Makefile `[sc=X]` tags and auto-inference. Populated from .cast.toml's
+	// [commands.shortcuts] section.
+	Shortcuts map[string]string
+
 	// OutputWidthPct is the percentage of total terminal width dedicated to
 	// the live-output panel. With center panel visible: 30–60. With center
 	// hidden: 30–50. Default: 30.
@@ -138,6 +143,7 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 			cfg.EnvFilePath = local.Env.File
 		}
 		cfg.ConfirmTargets = local.Commands.Confirm.Targets
+		cfg.Shortcuts = local.Commands.Shortcuts
 		if v := local.Layout.OutputWidthPct; v > 0 {
 			cfg.OutputWidthPct = v
 		}

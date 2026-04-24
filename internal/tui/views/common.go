@@ -49,10 +49,21 @@ func Truncate(s string, max int) string {
 	return s[:max-1] + "…"
 }
 
-// RenderKeyBadge renders a keyboard shortcut badge.
+// NoShortcutIcon is rendered in place of the shortcut letter for commands that
+// have no assigned shortcut. `⬢` evokes cast's visual identity and reads as
+// "a thing you can run, just not with one keypress".
+const NoShortcutIcon = "⬢"
+
+// RenderKeyBadge renders a keyboard shortcut badge. Commands without an
+// assigned shortcut get a muted icon instead of a blank/letter badge so the
+// distinction is obvious at a glance.
 func RenderKeyBadge(p Palette, key string) string {
 	if key == "" {
-		key = " "
+		return lipgloss.NewStyle().
+			Foreground(p.FgDim).
+			Background(p.BgHover).
+			Padding(0, 1).
+			Render(NoShortcutIcon)
 	}
 	return lipgloss.NewStyle().
 		Foreground(p.BgDeep).Bold(true).

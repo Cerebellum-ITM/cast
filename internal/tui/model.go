@@ -529,6 +529,20 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	k := msg.String()
+
+	// Command shortcut lookup takes precedence over the single-letter bindings
+	// in KeyMap (Top=g, Bottom=G, ToggleSecrets=s, Quit=q). If a filtered
+	// command has Shortcut==k, run it. Restricted to the commands tab; the env
+	// tab has its own key handler.
+	if m.activeTab == TabCommands && len(k) == 1 && !m.running {
+		for i, cmd := range m.filtered {
+			if cmd.Shortcut == k {
+				m.selected = i
+				return m.triggerRun()
+			}
+		}
+	}
+
 	switch {
 	case k == "ctrl+c":
 		if m.running && m.runCancel != nil {
@@ -544,11 +558,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.activeTab = (m.activeTab + 1) % 4
 	case k == m.keys.TabPrev:
 		m.activeTab = (m.activeTab + 3) % 4
-	case k == m.keys.Up, k == m.keys.UpVim:
+	case k == m.keys.Up:
 		if m.selected > 0 {
 			m.selected--
 		}
-	case k == m.keys.Down, k == m.keys.DownVim:
+	case k == m.keys.Down:
 		if m.selected < len(m.filtered)-1 {
 			m.selected++
 		}
@@ -612,19 +626,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.sidebarWidthPct = next
 		m.recalcLayout()
 		return m, nil
-	// Quick shortcuts
-	case k == "b":
-		return m.runByName("build")
-	case k == "B":
-		return m.runByName("build_release")
-	case k == "t":
-		return m.runByName("test")
-	case k == "l":
-		return m.runByName("lint")
-	case k == "c":
-		return m.runByName("clean")
-	case k == "d":
-		return m.runByName("deploy")
 	}
 
 	return m, nil
@@ -905,9 +906,9 @@ func (m Model) handleEnvKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.envFocus = 0
 	case "right", "l":
 		m.envFocus = 1
-	case m.keys.Up, m.keys.UpVim:
+	case m.keys.Up, "k":
 		m.envNavUp()
-	case m.keys.Down, m.keys.DownVim:
+	case m.keys.Down, "j":
 		m.envNavDown()
 	case m.keys.Top:
 		m.envNavTop()

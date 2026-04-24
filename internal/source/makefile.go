@@ -79,11 +79,16 @@ func (m *MakefileSource) Load() ([]Command, error) {
 					continue
 				}
 				cleanDesc, stream, streamSet := extractStreamTag(desc)
+				cleanDesc, shortcut, shortcutSet := extractShortcutTag(cleanDesc)
 				cmd := Command{
-					Name:     name,
-					Desc:     cleanDesc,
-					Tags:     inferTags(name),
-					Shortcut: autoShortcut(name, commands),
+					Name: name,
+					Desc: cleanDesc,
+					Tags: inferTags(name),
+				}
+				if shortcutSet {
+					cmd.Shortcut = shortcut
+				} else {
+					cmd.Shortcut = autoShortcut(name, commands)
 				}
 				if streamSet {
 					cmd.Stream = stream
@@ -145,6 +150,29 @@ func (m *MakefileSource) Load() ([]Command, error) {
 	flushRecipe(currentBody)
 
 	return commands, scanner.Err()
+}
+
+// shortcutTagRe matches `[sc=X]` or `[shortcut=X]` (X = single char or empty
+// for "no shortcut"). Trailing whitespace-tolerant.
+var shortcutTagRe = regexp.MustCompile(`(?i)\s*\[(?:sc|shortcut)=([^\]]*)\]\s*$`)
+
+// extractShortcutTag looks for `[sc=X]` or `[shortcut=X]` in desc. An empty
+// value (e.g. `[sc=]`) means "disable auto-shortcut" and returns set=true,
+// shortcut="". When the tag is absent, set=false and the caller falls back to
+// auto-inference.
+func extractShortcutTag(desc string) (clean string, shortcut string, set bool) {
+	m := shortcutTagRe.FindStringSubmatchIndex(desc)
+	if m == nil {
+		return desc, "", false
+	}
+	// m[2]/m[3] = capture group 1 (the value between `=` and `]`).
+	val := strings.TrimSpace(desc[m[2]:m[3]])
+	cleaned := strings.TrimSpace(desc[:m[0]])
+	// Accept a single letter/digit/symbol as shortcut; silently drop longer strings.
+	if len(val) > 1 {
+		val = val[:1]
+	}
+	return cleaned, val, true
 }
 
 // extractStreamTag looks for `[stream]` or `[no-stream]` at the end of desc and

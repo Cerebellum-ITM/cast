@@ -28,6 +28,9 @@ Usage:
   cast env set KEY=VALUE    set a variable (persisted to .env + db)
   cast env get KEY          print a variable's value
   cast env list             list all variables
+  cast shortcut list        show assigned shortcuts for all commands
+  cast shortcut set CMD K   assign single-char shortcut K to command CMD
+  cast shortcut unset CMD   remove shortcut for CMD (falls back to auto)
 
 Flags:
   -env   string   environment override: local | staging | prod
@@ -47,6 +50,9 @@ func main() {
 			return
 		case "env":
 			runEnvCommand(os.Args[2:])
+			return
+		case "shortcut":
+			runShortcutCommand(os.Args[2:])
 			return
 		case "-h", "--help", "help":
 			fmt.Print(usage)
@@ -83,6 +89,17 @@ func main() {
 			if confirmSet[commands[i].Name] {
 				commands[i].Confirm = true
 			}
+		}
+	}
+
+	// Shortcut overrides: cast.toml [commands.shortcuts] wins over Makefile
+	// [sc=X] tags and auto-inference. Empty value = clear shortcut (icon).
+	for i := range commands {
+		if v, ok := cfg.Shortcuts[commands[i].Name]; ok {
+			if len(v) > 1 {
+				v = v[:1]
+			}
+			commands[i].Shortcut = v
 		}
 	}
 
@@ -360,4 +377,167 @@ func runEnvList(args []string) {
 		}
 		fmt.Printf("%s=%s\n", v.Key, val)
 	}
+}
+
+// runShortcutCommand dispatches `cast shortcut` subcommands.
+func runShortcutCommand(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "cast shortcut: missing subcommand (list | set | unset)")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "list":
+		runShortcutList()
+	case "set":
+		if len(args) != 3 {
+			fmt.Fprintln(os.Stderr, "cast shortcut set: expected 2 args — CMD and KEY (got "+fmt.Sprint(len(args)-1)+")")
+			os.Exit(1)
+		}
+		runShortcutSet(args[1], args[2])
+	case "unset":
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "cast shortcut unset: expected 1 arg — CMD")
+			os.Exit(1)
+		}
+		runShortcutSet(args[1], "")
+	default:
+		fmt.Fprintf(os.Stderr, "cast shortcut: unknown subcommand %q\n", args[0])
+		os.Exit(1)
+	}
+}
+
+func runShortcutList() {
+	cfg, err := config.Load("", "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast shortcut list: config: %v\n", err)
+		os.Exit(1)
+	}
+	src := &source.MakefileSource{Path: cfg.SourcePath}
+	cmds, err := src.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast shortcut list: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("shortcuts for %d commands (source: %s):\n\n", len(cmds), cfg.SourcePath)
+	fmt.Printf("  %-3s  %-24s  %s\n", "KEY", "COMMAND", "ORIGIN")
+	for _, c := range cmds {
+		origin := "makefile"
+		if _, ok := cfg.Shortcuts[c.Name]; ok {
+			origin = ".cast.toml"
+		}
+		// Apply local-toml override (matching main.go behavior).
+		short := c.Shortcut
+		if v, ok := cfg.Shortcuts[c.Name]; ok {
+			if len(v) > 1 {
+				v = v[:1]
+			}
+			short = v
+		}
+		if short == "" {
+			fmt.Printf("  %-3s  %-24s  %s\n", "·", c.Name, origin)
+		} else {
+			fmt.Printf("  %-3s  %-24s  %s\n", short, c.Name, origin)
+		}
+	}
+}
+
+// runShortcutSet upserts [commands.shortcuts] in .cast.toml. An empty value
+// deletes the entry (used by `unset`).
+func runShortcutSet(cmdName, key string) {
+	if len(key) > 1 {
+		fmt.Fprintf(os.Stderr, "cast shortcut: KEY must be a single character (got %q)\n", key)
+		os.Exit(1)
+	}
+	path := config.LocalPath()
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "cast shortcut: read %s: %v\n", path, err)
+		os.Exit(1)
+	}
+	updated := upsertShortcut(string(raw), cmdName, key)
+	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "cast shortcut: write %s: %v\n", path, err)
+		os.Exit(1)
+	}
+	if key == "" {
+		fmt.Printf("✓ cleared shortcut for %s in %s\n", cmdName, path)
+	} else {
+		fmt.Printf("✓ set %s → %q in %s\n", cmdName, key, path)
+	}
+}
+
+// upsertShortcut rewrites src so that [commands.shortcuts] contains cmdName=key.
+// An empty key removes the entry. Comments and unrelated sections are preserved
+// verbatim because we only edit the target block line-by-line.
+func upsertShortcut(src, cmdName, key string) string {
+	header := "[commands.shortcuts]"
+	lines := strings.Split(src, "\n")
+
+	// Locate block start.
+	blockStart := -1
+	for i, ln := range lines {
+		if strings.TrimSpace(ln) == header {
+			blockStart = i
+			break
+		}
+	}
+
+	// No block yet: append one at the end.
+	if blockStart == -1 {
+		if key == "" {
+			return src // nothing to remove
+		}
+		suffix := fmt.Sprintf("\n%s\n%q = %q\n", header, cmdName, key)
+		// Avoid double blank line if src already ends with newline.
+		if strings.HasSuffix(src, "\n\n") || src == "" {
+			suffix = suffix[1:]
+		}
+		return src + suffix
+	}
+
+	// Find block end (next section header or EOF).
+	blockEnd := len(lines)
+	for i := blockStart + 1; i < len(lines); i++ {
+		t := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+			blockEnd = i
+			break
+		}
+	}
+
+	// Scan existing entries; update or remove.
+	keyPrefix := fmt.Sprintf("%q", cmdName) // "cmdName"
+	altPrefix := cmdName                    // bare form
+	found := false
+	for i := blockStart + 1; i < blockEnd; i++ {
+		t := strings.TrimSpace(lines[i])
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		// Extract key up to '='
+		eq := strings.Index(t, "=")
+		if eq < 0 {
+			continue
+		}
+		lhs := strings.TrimSpace(t[:eq])
+		if lhs == keyPrefix || lhs == altPrefix {
+			found = true
+			if key == "" {
+				// Remove this line.
+				lines = append(lines[:i], lines[i+1:]...)
+				blockEnd--
+			} else {
+				lines[i] = fmt.Sprintf("%q = %q", cmdName, key)
+			}
+			break
+		}
+	}
+	if !found && key != "" {
+		// Insert just after header.
+		newLine := fmt.Sprintf("%q = %q", cmdName, key)
+		lines = append(lines[:blockStart+1],
+			append([]string{newLine}, lines[blockStart+1:]...)...)
+	}
+	return strings.Join(lines, "\n")
 }

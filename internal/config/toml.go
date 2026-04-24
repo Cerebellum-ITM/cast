@@ -86,7 +86,8 @@ type LocalFile struct {
 
 // LocalCommands holds project-level command configuration.
 type LocalCommands struct {
-	Confirm LocalConfirm `toml:"confirm"`
+	Confirm   LocalConfirm      `toml:"confirm"`
+	Shortcuts map[string]string `toml:"shortcuts"` // command name → single-char shortcut
 }
 
 // LocalConfirm lists command names that always require a confirmation modal.
@@ -265,6 +266,12 @@ file = ".env"             # path to .env file (relative to this config)
 # sidebar_width_pct  = 20      # 15–40 with center on, 30–50 with center off
 # output_width_pct   = 35      # 30–60 with center on, 30–50 with center off
 # show_center_panel  = true    # false hides the middle detail panel
+
+# [commands.shortcuts]
+# # Command name → single-char keyboard shortcut. Wins over Makefile [sc=X]
+# # tags and auto-inference. Manage via: cast shortcut set/unset/list.
+# build = "b"
+# test  = "t"
 
 # ── WIP ──────────────────────────────────────────────────────────────────────
 # Uncomment and fill these sections when the features are ready.
