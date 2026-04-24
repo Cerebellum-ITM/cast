@@ -108,7 +108,7 @@ func Output(p Palette, props OutputProps) string {
 		allRows = append(allRows, progressRow, emptyRow)
 	}
 	allRows = append(allRows, termRows...)
-	allRows = append(allRows, hintSep, hintRow)
+	allRows = append(allRows, hintSep, hintRow, hintSep)
 	allRows = append(allRows, recentRows...)
 
 	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgDeep).
@@ -173,9 +173,9 @@ func renderTermRows(p Palette, output []string, w, h int) []string {
 func renderRecentRows(p Palette, history []db.Run, w, max int) []string {
 	label := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel).
 		Foreground(p.Fg).Bold(true).Render("RECENT")
-	sep := SepLine(p, w)
+	// sep := SepLine(p, w)
 
-	rows := []string{label, sep}
+	rows := []string{label}
 
 	for i, r := range history {
 		if i >= max {
