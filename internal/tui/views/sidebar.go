@@ -95,20 +95,34 @@ func renderCommandCard(p Palette, cmd source.Command, selected bool, w int) (str
 	badge := RenderKeyBadge(p, cmd.Shortcut)
 	badgeW := VisWidth(badge)
 
-	var tagChip string
-	tagChipW := 0
-	// trailBuf is an unstyled space appended after the chip. Without it,
+	contentW := w - 1
+	// minNameW keeps at least a few characters of the command name visible
+	// before we spend width on tag chips.
+	const minNameW = 6
+	// trailBuf is an unstyled space appended after the last chip. Without it,
 	// lipgloss v2 collapses the chip's own right-padding (a styled trailing
 	// space) when the row fills Width() exactly, leaving the chip looking cut.
-	trailBuf := 0
-	if len(cmd.Tags) > 0 {
-		tagChip = RenderTagChip(p, cmd.Tags[0])
-		tagChipW = VisWidth(tagChip) + 1 // +1 for leading separator space
-		trailBuf = 1
+	trailBuf := 1
+
+	// Greedy fit: take tag chips in order until adding another would leave
+	// fewer than minNameW columns for the name.
+	var chips []string
+	chipsW := 0
+	budgetBase := contentW - badgeW - 1 // everything to the right of "badge "
+	for _, t := range cmd.Tags {
+		chip := RenderTagChip(p, t)
+		need := chipsW + VisWidth(chip) + 1 // +1 leading separator
+		if budgetBase-need-trailBuf < minNameW {
+			break
+		}
+		chips = append(chips, chip)
+		chipsW = need
+	}
+	if len(chips) == 0 {
+		trailBuf = 0
 	}
 
-	contentW := w - 1
-	nameAvail := contentW - badgeW - 1 - tagChipW - trailBuf
+	nameAvail := budgetBase - chipsW - trailBuf
 	if nameAvail < 1 {
 		nameAvail = 1
 	}
@@ -121,8 +135,9 @@ func renderCommandCard(p Palette, cmd source.Command, selected bool, w int) (str
 	}
 
 	var row1Content string
-	if tagChip != "" {
-		row1Content = badge + " " + nameStr + strings.Repeat(" ", namePad) + " " + tagChip + " "
+	if len(chips) > 0 {
+		row1Content = badge + " " + nameStr + strings.Repeat(" ", namePad) + " " +
+			strings.Join(chips, " ") + " "
 	} else {
 		row1Content = badge + " " + nameStr
 	}
