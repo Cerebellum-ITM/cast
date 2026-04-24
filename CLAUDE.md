@@ -121,25 +121,20 @@ make lint           # golangci-lint
 
 ---
 
-## lipgloss pitfalls
+## Deep-dive docs
 
-### Multi-line indentation: use `MarginLeft` not string prefix
+These topics live in `docs/ai/` to keep this file short. Read the matching
+file only when the task requires it.
 
-Never indent a multi-line lipgloss render (boxes, borders, tall components) by prepending spaces with `Pad(n) + widget`. String concatenation only prepends to the **first line** — the remaining lines (e.g. the body and bottom of a rounded border) render flush-left, causing visual misalignment.
+| File | When to read |
+|---|---|
+| [`docs/ai/lipgloss-pitfalls.md`](docs/ai/lipgloss-pitfalls.md) | A view is misaligned, a bordered box lost its indent, or a chip/badge looks cut at a panel boundary. |
+| [`docs/ai/debugging-views.md`](docs/ai/debugging-views.md) | You need to reproduce a rendering bug in `internal/tui/views` without running the full TUI (throwaway `cmd/debugview` technique, ANSI stripping, width comparison). |
 
-**Wrong:**
-```go
-box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(w).Render(val)
-lines = append(lines, Pad(2)+box)  // only the top border gets the indent
-```
-
-**Correct:**
-```go
-box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).MarginLeft(2).Width(w).Render(val)
-lines = append(lines, box)  // MarginLeft applies to every line
-```
-
-This applies to any multi-line component: bordered boxes, tall panels, stacked renders. Single-line styled strings (`Pad(2) + Style(...).Render(text)`) are fine.
+When adding a new non-trivial topic (a gotcha, a debugging recipe, a subsystem
+deep-dive) that doesn't belong in code comments, create a new file in
+`docs/ai/` and add a one-line row to the table above. Keep each file focused
+on a single topic so future agents can pull in only what they need.
 
 ---
 
