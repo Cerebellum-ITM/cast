@@ -15,6 +15,7 @@ type GlobalFile struct {
 	Theme   GlobalTheme   `toml:"theme"`
 	History GlobalHistory `toml:"history"`
 	DB      GlobalDB      `toml:"db"`
+	Layout  LayoutSection `toml:"layout"`
 
 	// WIP: Keybindings   GlobalKeybindings   `toml:"keybindings"`
 	// WIP: Notifications GlobalNotifications `toml:"notifications"`
@@ -35,6 +36,18 @@ type GlobalHistory struct {
 // GlobalDB configures the SQLite database location.
 type GlobalDB struct {
 	Path string `toml:"path"`
+}
+
+// LayoutSection controls TUI panel sizing. Shared between global and local.
+// Zero/nil fields mean "inherit from the layer below".
+type LayoutSection struct {
+	// OutputWidthPct: width of the right (output) panel as % of total.
+	OutputWidthPct int `toml:"output_width_pct"`
+	// SidebarWidthPct: width of the left (sidebar) panel as % of total.
+	SidebarWidthPct int `toml:"sidebar_width_pct"`
+	// ShowCenterPanel: when false, the middle detail panel is hidden and
+	// sidebar + output share the full width. Pointer so omitted == inherit.
+	ShowCenterPanel *bool `toml:"show_center_panel"`
 }
 
 // ── WIP global structs (uncommented when ready) ──────────────────────────────
@@ -65,6 +78,7 @@ type GlobalDB struct {
 type LocalFile struct {
 	Env      LocalEnv      `toml:"env"`
 	Commands LocalCommands `toml:"commands"`
+	Layout   LayoutSection `toml:"layout"`
 
 	// WIP: Source  LocalSource  `toml:"source"`
 	// WIP: Project LocalProject `toml:"project"`
@@ -208,6 +222,15 @@ max = 100   # max run-history rows retained in the SQLite db
 [db]
 path = ""   # empty = ~/.config/cast/cast.db
 
+[layout]
+# Panel widths as % of total terminal width.
+# With show_center_panel = true:  sidebar 15–40, output 30–60, sum ≤ 90.
+# With show_center_panel = false: sidebar 30–50, output 30–50, sum ≤ 100.
+# Runtime keys: [ / ]  shrink/grow output · { / }  shrink/grow sidebar.
+sidebar_width_pct  = 25
+output_width_pct   = 30
+show_center_panel  = true
+
 # ── WIP ──────────────────────────────────────────────────────────────────────
 # Uncomment and fill these sections when the features are ready.
 
@@ -237,6 +260,11 @@ func LocalTemplateSrc(envName string) string {
 [env]
 name = "` + envName + `"  # dev | staging | prod  — controls accent color in the TUI
 file = ".env"             # path to .env file (relative to this config)
+
+# [layout]
+# sidebar_width_pct  = 20      # 15–40 with center on, 30–50 with center off
+# output_width_pct   = 35      # 30–60 with center on, 30–50 with center off
+# show_center_panel  = true    # false hides the middle detail panel
 
 # ── WIP ──────────────────────────────────────────────────────────────────────
 # Uncomment and fill these sections when the features are ready.

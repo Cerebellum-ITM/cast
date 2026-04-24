@@ -174,6 +174,8 @@ func runConfig() {
 	fmt.Printf("  source     %s (%s)\n", cfg.SourcePath, cfg.SourceType)
 	fmt.Printf("  history    max=%d\n", cfg.HistoryMax)
 	fmt.Printf("  db         %s  (%s)\n", shortPath(cfg.DBPath), fileStatus(cfg.DBPath))
+	fmt.Printf("  layout     sidebar=%d%%  output=%d%%  center=%v\n",
+		cfg.SidebarWidthPct, cfg.OutputWidthPct, cfg.ShowCenterPanel)
 }
 
 // runEnvCommand dispatches cast env subcommands.

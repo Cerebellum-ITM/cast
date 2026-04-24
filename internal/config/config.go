@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -60,6 +61,20 @@ type Config struct {
 	DBPath     string
 
 	ConfirmTargets []string // command names that always require confirmation
+
+	// OutputWidthPct is the percentage of total terminal width dedicated to
+	// the live-output panel. With center panel visible: 30–60. With center
+	// hidden: 30–50. Default: 30.
+	OutputWidthPct int
+
+	// SidebarWidthPct is the percentage of total terminal width dedicated to
+	// the left sidebar. With center visible: 15–40. With center hidden: 30–50.
+	// Default: 25.
+	SidebarWidthPct int
+
+	// ShowCenterPanel controls whether the middle detail/env panel is
+	// rendered. When false, sidebar + output share the full width.
+	ShowCenterPanel bool
 }
 
 // Default returns a Config with sensible hardcoded defaults.
@@ -71,8 +86,11 @@ func Default() *Config {
 		SourceType:  "makefile",
 		SourcePath:  "./Makefile",
 		EnvFilePath: ".env",
-		HistoryMax:  100,
-		DBPath:      filepath.Join(home, ".config", "cast", "cast.db"),
+		HistoryMax:      100,
+		DBPath:          filepath.Join(home, ".config", "cast", "cast.db"),
+		OutputWidthPct:  30,
+		SidebarWidthPct: 25,
+		ShowCenterPanel: true,
 	}
 }
 
@@ -100,6 +118,15 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 	if global.DB.Path != "" {
 		cfg.DBPath = global.DB.Path
 	}
+	if v := global.Layout.OutputWidthPct; v > 0 {
+		cfg.OutputWidthPct = v
+	}
+	if v := global.Layout.SidebarWidthPct; v > 0 {
+		cfg.SidebarWidthPct = v
+	}
+	if global.Layout.ShowCenterPanel != nil {
+		cfg.ShowCenterPanel = *global.Layout.ShowCenterPanel
+	}
 
 	// ── Layer 3: local file ───────────────────────────────────────────────
 	local, ok := LoadLocal()
@@ -111,6 +138,15 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 			cfg.EnvFilePath = local.Env.File
 		}
 		cfg.ConfirmTargets = local.Commands.Confirm.Targets
+		if v := local.Layout.OutputWidthPct; v > 0 {
+			cfg.OutputWidthPct = v
+		}
+		if v := local.Layout.SidebarWidthPct; v > 0 {
+			cfg.SidebarWidthPct = v
+		}
+		if local.Layout.ShowCenterPanel != nil {
+			cfg.ShowCenterPanel = *local.Layout.ShowCenterPanel
+		}
 	}
 
 	// ── Layer 4: CAST_ENV env var ─────────────────────────────────────────
@@ -136,7 +172,44 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 		}
 	}
 
+	if err := validateLayout(cfg); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// validateLayout enforces panel-width invariants. When the center panel is
+// visible, sidebar+output must leave at least 10% for it; when hidden, both
+// panels are capped at 50% so they can split the screen without overlap.
+func validateLayout(cfg *Config) error {
+	sb := cfg.SidebarWidthPct
+	out := cfg.OutputWidthPct
+
+	if cfg.ShowCenterPanel {
+		if sb < 15 || sb > 40 {
+			return fmt.Errorf("layout.sidebar_width_pct = %d: must be between 15 and 40 when the center panel is visible", sb)
+		}
+		if out < 30 || out > 60 {
+			return fmt.Errorf("layout.output_width_pct = %d: must be between 30 and 60 when the center panel is visible", out)
+		}
+		if sb+out > 90 {
+			return fmt.Errorf("layout: sidebar (%d%%) + output (%d%%) = %d%% leaves no room for the center panel (need ≥ 10%%); lower one of them or disable show_center_panel", sb, out, sb+out)
+		}
+		return nil
+	}
+
+	// Center hidden: sidebar + output share the full width.
+	if sb < 30 || sb > 50 {
+		return fmt.Errorf("layout.sidebar_width_pct = %d: must be between 30 and 50 when the center panel is hidden", sb)
+	}
+	if out < 30 || out > 50 {
+		return fmt.Errorf("layout.output_width_pct = %d: must be between 30 and 50 when the center panel is hidden", out)
+	}
+	if sb+out > 100 {
+		return fmt.Errorf("layout: sidebar (%d%%) + output (%d%%) = %d%% exceeds 100%%", sb, out, sb+out)
+	}
+	return nil
 }
 
 // ParseEnv converts a string to an Env, defaulting to EnvLocal.

@@ -97,13 +97,18 @@ func renderCommandCard(p Palette, cmd source.Command, selected bool, w int) (str
 
 	var tagChip string
 	tagChipW := 0
+	// trailBuf is an unstyled space appended after the chip. Without it,
+	// lipgloss v2 collapses the chip's own right-padding (a styled trailing
+	// space) when the row fills Width() exactly, leaving the chip looking cut.
+	trailBuf := 0
 	if len(cmd.Tags) > 0 {
 		tagChip = RenderTagChip(p, cmd.Tags[0])
-		tagChipW = VisWidth(tagChip) + 1
+		tagChipW = VisWidth(tagChip) + 1 // +1 for leading separator space
+		trailBuf = 1
 	}
 
 	contentW := w - 1
-	nameAvail := contentW - badgeW - 1 - tagChipW
+	nameAvail := contentW - badgeW - 1 - tagChipW - trailBuf
 	if nameAvail < 1 {
 		nameAvail = 1
 	}
@@ -117,7 +122,7 @@ func renderCommandCard(p Palette, cmd source.Command, selected bool, w int) (str
 
 	var row1Content string
 	if tagChip != "" {
-		row1Content = badge + " " + nameStr + strings.Repeat(" ", namePad) + " " + tagChip
+		row1Content = badge + " " + nameStr + strings.Repeat(" ", namePad) + " " + tagChip + " "
 	} else {
 		row1Content = badge + " " + nameStr
 	}

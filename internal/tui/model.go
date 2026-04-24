@@ -153,9 +153,11 @@ type Model struct {
 	makefileExpandLines []string
 
 	// Layout
-	width          int
-	height         int
-	outputWidthPct int // 30–60: % of total width used by the output panel
+	width           int
+	height          int
+	outputWidthPct  int // 30–60 (or 30–50 when center hidden)
+	sidebarWidthPct int // 15–40 (or 30–50 when center hidden)
+	showCenter      bool
 
 	// Bubbles sub-models
 	searchInput textinput.Model
@@ -206,28 +208,65 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		progressBar:    pb,
 		makefileLines:  loadFileLines(cfg.SourcePath),
 		makefilePath:   cfg.SourcePath,
-		envFile:        envFile,
-		envFilePath:    cfg.EnvFilePath,
-		outputWidthPct: 30,
+		envFile:         envFile,
+		envFilePath:     cfg.EnvFilePath,
+		outputWidthPct:  cfg.OutputWidthPct,
+		sidebarWidthPct: cfg.SidebarWidthPct,
+		showCenter:      cfg.ShowCenterPanel,
 	}
 }
 
 // outputPanelW returns the output panel width in columns, derived from the
-// percentage preference (clamped 30–60%). Includes the left divider char, so
-// callers use this everywhere `outputW` used to sit.
+// percentage preference. Includes the left divider char.
 func (m Model) outputPanelW() int {
-	pct := m.outputWidthPct
-	if pct < 30 {
-		pct = 30
-	}
-	if pct > 60 {
-		pct = 60
-	}
-	w := m.width * pct / 100
+	w := m.width * m.outputWidthPct / 100
 	if w < 20 {
 		w = 20
 	}
 	return w
+}
+
+// sidebarPanelW returns the left sidebar width in columns. Includes the right
+// divider char.
+func (m Model) sidebarPanelW() int {
+	w := m.width * m.sidebarWidthPct / 100
+	if w < 18 {
+		w = 18
+	}
+	return w
+}
+
+// outputPctMax returns the maximum allowed output % given the current layout
+// (center visible vs hidden and the current sidebar %).
+func (m Model) outputPctMax() int {
+	if m.showCenter {
+		lim := 90 - m.sidebarWidthPct
+		if lim > 60 {
+			lim = 60
+		}
+		return lim
+	}
+	lim := 100 - m.sidebarWidthPct
+	if lim > 50 {
+		lim = 50
+	}
+	return lim
+}
+
+// sidebarPctMax returns the maximum allowed sidebar % given the current layout.
+func (m Model) sidebarPctMax() int {
+	if m.showCenter {
+		lim := 90 - m.outputWidthPct
+		if lim > 40 {
+			lim = 40
+		}
+		return lim
+	}
+	lim := 100 - m.outputWidthPct
+	if lim > 50 {
+		lim = 50
+	}
+	return lim
 }
 
 // NewOnTab creates a Model that starts with the given tab active.
@@ -537,17 +576,40 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case k == m.keys.ExpandMakefile:
 		return m.toggleMakefileExpand()
 	case k == m.keys.OutputWider:
-		m.outputWidthPct += 5
-		if m.outputWidthPct > 60 {
-			m.outputWidthPct = 60
+		next := m.outputWidthPct + 5
+		if max := m.outputPctMax(); next > max {
+			next = max
 		}
+		m.outputWidthPct = next
 		m.recalcLayout()
 		return m, nil
 	case k == m.keys.OutputNarrower:
-		m.outputWidthPct -= 5
-		if m.outputWidthPct < 30 {
-			m.outputWidthPct = 30
+		min := 30
+		next := m.outputWidthPct - 5
+		if next < min {
+			next = min
 		}
+		m.outputWidthPct = next
+		m.recalcLayout()
+		return m, nil
+	case k == m.keys.SidebarWider:
+		next := m.sidebarWidthPct + 5
+		if max := m.sidebarPctMax(); next > max {
+			next = max
+		}
+		m.sidebarWidthPct = next
+		m.recalcLayout()
+		return m, nil
+	case k == m.keys.SidebarNarrower:
+		min := 15
+		if !m.showCenter {
+			min = 30
+		}
+		next := m.sidebarWidthPct - 5
+		if next < min {
+			next = min
+		}
+		m.sidebarWidthPct = next
 		m.recalcLayout()
 		return m, nil
 	// Quick shortcuts
@@ -1136,8 +1198,11 @@ func (m Model) runByName(name string) (tea.Model, tea.Cmd) {
 func (m *Model) recalcLayout() {
 	const borders = 2
 	outputW := m.outputPanelW()
+	sidebarW := m.sidebarPanelW()
 	centerW := m.width - sidebarW - outputW - borders
-	if centerW < 10 {
+	if !m.showCenter {
+		centerW = 0
+	} else if centerW < 10 {
 		centerW = 10
 	}
 	contentH := m.height - 2

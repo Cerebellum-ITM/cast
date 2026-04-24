@@ -12,9 +12,8 @@ import (
 
 // Layout constants — all in terminal columns / rows.
 const (
-	sidebarW = 24 // includes right divider char
-	headerH  = 4  // 3 content rows (pill height) + 1 separator row
-	statusH  = 1
+	headerH = 4 // 3 content rows (pill height) + 1 separator row
+	statusH = 1
 )
 
 // renderMain is the root renderer. When the confirm modal is active it renders
@@ -29,9 +28,12 @@ func (m Model) renderMain() string {
 	if bodyH < 1 {
 		bodyH = 1
 	}
+	sidebarW := m.sidebarPanelW()
 	outputW := m.outputPanelW()
 	centerW := m.width - sidebarW - outputW
-	if centerW < 10 {
+	if !m.showCenter {
+		centerW = 0
+	} else if centerW < 10 {
 		centerW = 10
 	}
 
@@ -160,7 +162,7 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 		return m.renderEnvBody(p, bodyH, centerW)
 	}
 
-	sbInner := sidebarW - 1
+	sbInner := m.sidebarPanelW() - 1
 	outInner := m.outputPanelW() - 1
 
 	sidebar := views.Sidebar(p, views.SidebarProps{
@@ -172,7 +174,10 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 		Height:        bodyH,
 	})
 
-	center := m.renderCenter(p, centerW, bodyH)
+	var center string
+	if m.showCenter {
+		center = m.renderCenter(p, centerW, bodyH)
+	}
 
 	output := views.Output(p, views.OutputProps{
 		Lines:       m.output,
@@ -192,6 +197,9 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	divStyle := views.Style(p.Border, false)
 	divCol := divStyle.Render(strings.Repeat("│\n", bodyH-1) + "│")
 
+	if !m.showCenter {
+		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, divCol, output)
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, divCol, center, divCol, output)
 }
 
@@ -199,10 +207,11 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 const envSidebarW = 37
 
 func (m Model) renderEnvBody(p views.Palette, bodyH, totalW int) string {
-	// Recompute center width using the wider env sidebar.
 	_ = totalW
 	envCenterW := m.width - envSidebarW - m.outputPanelW()
-	if envCenterW < 10 {
+	if !m.showCenter {
+		envCenterW = 0
+	} else if envCenterW < 10 {
 		envCenterW = 10
 	}
 	sbInner := envSidebarW - 1
@@ -221,7 +230,10 @@ func (m Model) renderEnvBody(p views.Palette, bodyH, totalW int) string {
 		Height:        bodyH,
 	})
 
-	center := m.renderEnvCenter(p, envCenterW, bodyH, vars)
+	var center string
+	if m.showCenter {
+		center = m.renderEnvCenter(p, envCenterW, bodyH, vars)
+	}
 
 	history := views.EnvHistoryPanel(p, views.EnvHistoryProps{
 		Changes:     m.envHistoryItems,
@@ -235,6 +247,9 @@ func (m Model) renderEnvBody(p views.Palette, bodyH, totalW int) string {
 	divStyle := views.Style(p.Border, false)
 	divCol := divStyle.Render(strings.Repeat("│\n", bodyH-1) + "│")
 
+	if !m.showCenter {
+		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, divCol, history)
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, divCol, center, divCol, history)
 }
 
