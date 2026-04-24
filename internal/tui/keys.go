@@ -31,6 +31,8 @@ type KeyMap struct {
 	EditTags         string // open the tag-editor popup for the selected command
 	MakefilePageUp   string // scroll the center Makefile preview up one page
 	MakefilePageDown string // scroll the center Makefile preview down one page
+	ModeToggle       string // switch sidebar/history between single and chain mode
+	ChainBuilder     string // open multi-select to build a chain on the fly
 }
 
 // DefaultKeyMap is the out-of-the-box key configuration.
@@ -58,4 +60,6 @@ var DefaultKeyMap = KeyMap{
 	EditTags:         "ctrl+t",
 	MakefilePageUp:   "pgup",
 	MakefilePageDown: "pgdown",
+	ModeToggle:       "ctrl+s",
+	ChainBuilder:     "ctrl+a",
 }

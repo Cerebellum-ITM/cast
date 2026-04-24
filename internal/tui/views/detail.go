@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
@@ -190,11 +191,91 @@ func renderMakefilePreview(p Palette, props CommandsProps, h int) string {
 	return pathRow + "\n" + preview
 }
 
-// History renders the center panel when the history tab is active as a
-// bordered table (charm.land/lipgloss/v2/table) with per-status coloring.
-// cmds is consulted to classify each run by its runtime type (stream /
-// confirm / no-confirm) in the TYPE column.
-func History(p Palette, records []db.Run, cmds []source.Command, w, h int) string {
+// HistoryProps bundles the history tab inputs. When Mode == 1 the Chain runs
+// table is rendered instead of the per-command runs table.
+type HistoryProps struct {
+	Records   []db.Run
+	Cmds      []source.Command
+	Mode      int // 0 = single, 1 = chain
+	ChainRuns []db.ChainRunRecord
+	Width     int
+	Height    int
+}
+
+// History renders the center panel when the history tab is active. Content
+// depends on the active AppMode (single-run list vs. chain-run list).
+func History(p Palette, props HistoryProps) string {
+	if props.Mode == 1 {
+		return renderChainRunsTable(p, props.ChainRuns, props.Width, props.Height)
+	}
+	return renderRunsTable(p, props.Records, props.Cmds, props.Width, props.Height)
+}
+
+func renderChainRunsTable(p Palette, runs []db.ChainRunRecord, w, h int) string {
+	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
+		Background(p.BgPanel).Foreground(p.Fg).Bold(true).
+		Render("CHAIN HISTORY")
+	if len(runs) == 0 {
+		empty := lipgloss.NewStyle().Width(w).Padding(1, 2).
+			Background(p.BgPanel).Foreground(p.FgDim).
+			Render("no chain runs yet — queue shortcuts while a command is running to create one")
+		return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).
+			Render(titleRow + "\n" + empty)
+	}
+	headers := []string{"", "COMMANDS", "STEPS", "DURATION", "STARTED"}
+	rows := make([][]string, 0, len(runs))
+	for _, r := range runs {
+		rows = append(rows, []string{
+			StatusDot(p, r.Status),
+			Truncate(strings.Join(r.Commands, " › "), w/2),
+			fmt.Sprintf("%d", len(r.Commands)),
+			formatChainDuration(r.Duration),
+			r.StartedAt.Local().Format("15:04:05"),
+		})
+	}
+	borderStyle := lipgloss.NewStyle().Foreground(p.Border)
+	tbl := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(borderStyle).
+		BorderHeader(true).
+		BorderRow(false).
+		BorderColumn(false).
+		Headers(headers...).
+		Rows(rows...).
+		Width(w - 4).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			s := lipgloss.NewStyle().Padding(0, 1)
+			if row == table.HeaderRow {
+				if col == 0 {
+					return s.Width(3).Align(lipgloss.Center).Foreground(p.FgDim).Bold(true)
+				}
+				return s.Foreground(p.FgDim).Bold(true)
+			}
+			switch col {
+			case 0:
+				return s.Width(3).Align(lipgloss.Center)
+			case 1:
+				return s.Foreground(p.Fg).Bold(true)
+			default:
+				return s.Foreground(p.FgMuted)
+			}
+		})
+	body := lipgloss.NewStyle().Padding(0, 2).Background(p.BgPanel).Render(tbl.Render())
+	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).
+		Render(titleRow + "\n" + body)
+}
+
+func formatChainDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	if d < time.Second {
+		return d.Truncate(time.Millisecond).String()
+	}
+	return d.Truncate(time.Second).String()
+}
+
+func renderRunsTable(p Palette, records []db.Run, cmds []source.Command, w, h int) string {
 	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
 		Background(p.BgPanel).Foreground(p.Fg).Bold(true).
 		Render("HISTORY")
@@ -272,6 +353,7 @@ func History(p Palette, records []db.Run, cmds []source.Command, w, h int) strin
 	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).
 		Render(titleRow + "\n" + body)
 }
+
 
 // classifyRun returns a one-word runtime classifier for the command, chosen
 // by precedence so each row has at most one tag shown. Falls back to "" when

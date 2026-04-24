@@ -57,8 +57,9 @@ type Config struct {
 	SourcePath  string
 	EnvFilePath string // path to the .env file for this project
 
-	HistoryMax int
-	DBPath     string
+	HistoryMax      int
+	ChainHistoryMax int
+	DBPath          string
 
 	ConfirmTargets []string // command names that always require confirmation
 
@@ -92,6 +93,7 @@ func Default() *Config {
 		SourcePath:  "./Makefile",
 		EnvFilePath: ".env",
 		HistoryMax:      100,
+		ChainHistoryMax: 100,
 		DBPath:          filepath.Join(home, ".config", "cast", "cast.db"),
 		OutputWidthPct:  30,
 		SidebarWidthPct: 25,
@@ -119,6 +121,9 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 	}
 	if global.History.Max > 0 {
 		cfg.HistoryMax = global.History.Max
+	}
+	if global.History.ChainMax > 0 {
+		cfg.ChainHistoryMax = global.History.ChainMax
 	}
 	if global.DB.Path != "" {
 		cfg.DBPath = global.DB.Path

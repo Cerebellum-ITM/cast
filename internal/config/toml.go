@@ -30,7 +30,8 @@ type GlobalTheme struct {
 
 // GlobalHistory controls command-run history retention.
 type GlobalHistory struct {
-	Max int `toml:"max"`
+	Max      int `toml:"max"`
+	ChainMax int `toml:"chain_max"`
 }
 
 // GlobalDB configures the SQLite database location.
@@ -166,6 +167,9 @@ func LoadGlobal() (*GlobalFile, error) {
 	if f.History.Max == 0 {
 		f.History.Max = 100
 	}
+	if f.History.ChainMax == 0 {
+		f.History.ChainMax = 100
+	}
 	return &f, nil
 }
 
@@ -218,7 +222,8 @@ staging = "catppuccin"
 prod    = "catppuccin"
 
 [history]
-max = 100   # max run-history rows retained in the SQLite db
+max       = 100   # max run-history rows retained in the SQLite db
+chain_max = 100   # max chain-execution rows retained in the SQLite db
 
 [db]
 path = ""   # empty = ~/.config/cast/cast.db

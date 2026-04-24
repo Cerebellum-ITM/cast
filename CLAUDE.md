@@ -72,6 +72,19 @@ Per-command flag tags recognized on the `## name: desc …` line:
 | `[sc=X]` / `[shortcut=X]` | Pin a keyboard shortcut letter |
 | `[tags=a,b,c]` | Pin category tags |
 
+### App mode: single vs chain
+
+The TUI has two top-level modes toggled with `ctrl+s`. A pill in the header shows the active mode (cyan `SINGLE` or orange `CHAIN`).
+
+- **Single mode** (default) — sidebar lists Makefile commands, history tab shows per-run history. Pressing `Enter` (or a command's shortcut) runs the command. If a command is already running, the next `Enter`/shortcut appends the target to the active chain instead of being rejected (auto-queue). `ctrl+a` opens the explicit **chain builder**: `space` (or shortcut letters) toggle commands with an accent bar + order number shown in the sidebar; `Enter` runs the chain; `esc` cancels.
+- **Chain mode** — sidebar lists auto-saved chains (most recently executed first). `Enter` on a chain re-runs it. History tab shows per-chain-execution records (start, duration, status, steps).
+
+Failure policy: if any step errors or is interrupted, remaining steps are dropped and the chain persists as failed. The currently-running chain is rendered at the top of the sidebar (`CHAIN (N)` block) with the running step marked `▶`.
+
+Chains with ≥2 steps are auto-saved on completion. They dedupe by fingerprint (sha1 of the ordered command list) into a single `sequences` row, incrementing `run_count`. The total number of chain executions retained is capped by `history.chain_max` (default `100`) in `cast.toml`; older rows are pruned.
+
+Schema: reuses the pre-existing `sequences`/`sequence_steps`/`sequence_runs` tables from `001_init.sql`. Auto-saved chains live under the synthetic name `auto:<sha1-prefix>`.
+
 ### TUI data flow
 ```
 main.go

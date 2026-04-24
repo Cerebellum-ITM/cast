@@ -95,14 +95,19 @@ func (m Model) renderMain() string {
 
 func (m Model) renderHeader(p views.Palette) string {
 	pill := m.renderEnvPill(p)
-	pillW := lipgloss.Width(pill)
+	modePill := m.renderModePill(p)
+
+	rightW := lipgloss.Width(pill) + lipgloss.Width(modePill)
+	if rightW > 0 {
+		rightW += 1
+	}
 
 	logo := views.Style(p.Accent, true).Render("⬡ cast")
 	div := views.Style(p.Border, false).Render(" │ ")
 	tabs := m.renderTabs(p)
 	leftContent := logo + div + tabs
 
-	leftW := m.width - pillW
+	leftW := m.width - rightW
 	if leftW < 0 {
 		leftW = 0
 	}
@@ -111,9 +116,28 @@ func (m Model) renderHeader(p views.Palette) string {
 		rowStyle.Render(leftContent) + "\n" +
 		rowStyle.Render("")
 
-	rows123 := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, pill)
+	rightBlock := lipgloss.JoinHorizontal(lipgloss.Top, modePill, " ", pill)
+	rows123 := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightBlock)
 	sep := views.Style(p.Border, false).Render(strings.Repeat("─", m.width))
 	return rows123 + "\n" + sep
+}
+
+// renderModePill renders a two-state badge (SINGLE vs CHAIN) next to the env
+// pill. Accent color distinguishes chain mode from single.
+func (m Model) renderModePill(p views.Palette) string {
+	label := "SINGLE"
+	fg := p.Cyan
+	if m.mode == ModeChain {
+		label = "CHAIN"
+		fg = p.Orange
+	}
+	inner := lipgloss.NewStyle().Foreground(fg).Bold(true).
+		Background(p.BgSelected).Padding(0, 1).Render("⛓ " + label)
+	return lipgloss.NewStyle().
+		Background(p.BgDeep).
+		Border(lipgloss.RoundedBorder()).BorderForeground(p.Border).
+		Padding(0, 1).
+		Render(inner)
 }
 
 func (m Model) renderTabs(p views.Palette) string {
@@ -176,6 +200,12 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	sbInner := m.sidebarPanelW() - 1
 	outInner := m.outputPanelW() - 1
 
+	var queueCmds []string
+	curStep := 0
+	if len(m.chainCommands) > 1 {
+		queueCmds = m.chainCommands
+		curStep = m.chainStepIdx
+	}
 	sidebar := views.Sidebar(p, views.SidebarProps{
 		Commands:      m.filtered,
 		Selected:      m.selected,
@@ -183,6 +213,13 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 		SearchFocused: m.searchInput.Focused(),
 		Width:         sbInner,
 		Height:        bodyH,
+		Mode:          int(m.mode),
+		Chains:        m.chains,
+		ChainSel:      m.chainSel,
+		ChainBuilder:  m.chainBuilder,
+		ChainChecked:  m.chainChecked,
+		QueueCommands: queueCmds,
+		CurrentStep:   curStep,
 	})
 
 	var center string
@@ -330,7 +367,14 @@ func (m Model) renderEnvCenter(p views.Palette, w, h int, vars []source.EnvVar) 
 func (m Model) renderCenter(p views.Palette, w, h int) string {
 	switch m.activeTab {
 	case TabHistory:
-		return views.History(p, m.history, m.commands, w, h)
+		return views.History(p, views.HistoryProps{
+			Records:   m.history,
+			Cmds:      m.commands,
+			Mode:      int(m.mode),
+			ChainRuns: m.chainRuns,
+			Width:     w,
+			Height:    h,
+		})
 	default:
 		var cmd *source.Command
 		if len(m.filtered) > 0 {

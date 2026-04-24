@@ -40,6 +40,17 @@ const (
 	StateMain
 )
 
+// AppMode toggles what the sidebar and history tab show:
+//   - ModeSingle: individual commands (sidebar) and per-run history (tab).
+//   - ModeChain : saved chains (sidebar) and per-chain-execution history.
+// Auto-queueing via shortcuts still creates chains in both modes.
+type AppMode int
+
+const (
+	ModeSingle AppMode = iota
+	ModeChain
+)
+
 // --- Messages ----------------------------------------------------------------
 
 // SplashDoneMsg is emitted by the splash model when the animation completes.
@@ -63,6 +74,13 @@ type RunDoneMsg struct {
 
 // HistoryLoadedMsg carries runs loaded from the database on startup.
 type HistoryLoadedMsg struct{ Runs []db.Run }
+
+// ChainsLoadedMsg carries auto-saved chains: deduplicated summaries (for the
+// sidebar in chain mode) and individual executions (for the history tab).
+type ChainsLoadedMsg struct {
+	Chains []db.SequenceSummary
+	Runs   []db.ChainRunRecord
+}
 
 // EnvHistoryLoadedMsg carries env change records loaded from the database.
 type EnvHistoryLoadedMsg struct{ Changes []db.EnvChange }
@@ -144,6 +162,28 @@ type Model struct {
 	streaming   bool               // current run is a long-lived log stream
 	livePulse   bool               // flipped each tick for LIVE dot animation
 	interrupted bool               // current/last run was manually canceled
+
+	// Chain / queue state. A chain is any run where len(chainCommands) > 1.
+	// While any command is running, additional shortcuts/triggers append to
+	// chainCommands and execute after the current step finishes (abort on
+	// failure). The chain is persisted in the DB only after it completes.
+	chainCommands []string    // full ordered list of steps in the active chain
+	chainStepIdx  int         // index of the currently-running step; -1 idle
+	chainRunIDs   []int64     // runs.id for each completed step (len == stepIdx on Done)
+	chainStartAt  time.Time   // when step 0 started; used for sequence duration
+
+	// App mode: toggles between single-command view and saved-chain view.
+	mode            AppMode
+	chains          []db.SequenceSummary  // deduped chains, newest first
+	chainRuns       []db.ChainRunRecord   // individual chain executions for history
+	chainSel        int                   // cursor in the chain sidebar
+	chainHistoryMax int
+
+	// Explicit chain-builder (ctrl+b from single mode): user picks N commands
+	// via space/shortcut, Enter dispatches the chain. Selection order drives
+	// execution order.
+	chainBuilder bool
+	chainChecked []string
 
 	// Shortcut edit mode (single-key capture for the selected command).
 	shortcutEditMode bool
@@ -227,6 +267,8 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		outputWidthPct:  cfg.OutputWidthPct,
 		sidebarWidthPct: cfg.SidebarWidthPct,
 		showCenter:      cfg.ShowCenterPanel,
+		chainStepIdx:    -1,
+		chainHistoryMax: cfg.ChainHistoryMax,
 	}
 }
 
@@ -293,7 +335,7 @@ func NewOnTab(cfg *config.Config, commands []source.Command, database *db.DB, ta
 // Init satisfies tea.Model. The splash model drives its own tick loop,
 // and we kick off DB reads so history tabs are populated on first paint.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.splashModel.Init(), m.loadHistoryCmd(), m.loadEnvHistoryCmd())
+	return tea.Batch(m.splashModel.Init(), m.loadHistoryCmd(), m.loadEnvHistoryCmd(), m.loadChainsCmd())
 }
 
 func (m Model) loadHistoryCmd() tea.Cmd {
@@ -443,7 +485,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			cancel()
 		}
-		return m, func() tea.Msg { return RunDoneMsg{Status: run.Status, Run: run} }
+		m.chainRunIDs = append(m.chainRunIDs, run.ID)
+
+		// Prepend to history regardless of whether the chain continues so
+		// intermediate steps are visible in the Runs panel in real time.
+		m.history = append([]db.Run{run}, m.history...)
+		if m.historyMax > 0 && len(m.history) > m.historyMax {
+			m.history = m.history[:m.historyMax]
+		}
+
+		stepSucceeded := run.Status == db.StatusSuccess
+		if stepSucceeded {
+			if nextM, nextCmd, ok := m.advanceChain(); ok {
+				return nextM, nextCmd
+			}
+		}
+		// Chain ended (last step done, or a step failed/was interrupted).
+		if len(m.chainRunIDs) >= 2 {
+			m.persistChain(run.Status)
+		}
+		m.chainCommands = nil
+		m.chainStepIdx = -1
+		m.chainRunIDs = m.chainRunIDs[:0]
+		loadChains := m.loadChainsCmd()
+		done := func() tea.Msg { return RunDoneMsg{Status: run.Status, Run: run} }
+		if loadChains == nil {
+			return m, done
+		}
+		return m, tea.Batch(done, loadChains)
 
 	case RunDoneMsg:
 		m.running = false
@@ -451,9 +520,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.runProgress = 1.0
 		m.hasLastRun = true
 		m.lastRunOK = msg.Status == db.StatusSuccess
-		m.history = append([]db.Run{msg.Run}, m.history...)
-		if m.historyMax > 0 && len(m.history) > m.historyMax {
-			m.history = m.history[:m.historyMax]
+		// History already prepended per-step in the runner.DoneMsg handler.
+		return m, nil
+
+	case ChainsLoadedMsg:
+		m.chains = msg.Chains
+		m.chainRuns = msg.Runs
+		if m.chainSel >= len(m.chains) {
+			m.chainSel = 0
 		}
 		return m, nil
 
@@ -554,12 +628,90 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// in KeyMap (Top=g, Bottom=G, ToggleSecrets=s, Quit=q). If a filtered
 	// command has Shortcut==k, run it. Restricted to the commands tab; the env
 	// tab has its own key handler.
-	if m.activeTab == TabCommands && len(k) == 1 && !m.running {
+	// Single-letter shortcut lookup for commands. In single mode it runs (or
+	// auto-queues while running); in chain mode the letter keys don't bind,
+	// so chain mode falls straight through to the nav/mode logic below.
+	// When the builder is active, shortcuts toggle selection instead of
+	// triggering a run.
+	if m.activeTab == TabCommands && m.mode == ModeSingle && len(k) == 1 {
 		for i, cmd := range m.filtered {
 			if cmd.Shortcut == k {
+				if m.chainBuilder {
+					m.toggleChainSelection(cmd.Name)
+					return m, nil
+				}
+				if m.running {
+					m.enqueueCommand(cmd.Name)
+					return m, nil
+				}
 				m.selected = i
 				return m.triggerRun()
 			}
+		}
+	}
+
+	// Mode toggle works from any tab — flips sidebar and history view.
+	if k == m.keys.ModeToggle {
+		if m.mode == ModeSingle {
+			m.mode = ModeChain
+		} else {
+			m.mode = ModeSingle
+		}
+		// Leaving single mode also tears down the builder so it doesn't
+		// "ghost" in chain mode where it has no meaning.
+		m.chainBuilder = false
+		m.chainChecked = nil
+		return m, nil
+	}
+
+	// Builder toggle — only meaningful in single mode on the commands tab.
+	if m.activeTab == TabCommands && m.mode == ModeSingle && k == m.keys.ChainBuilder {
+		m.chainBuilder = !m.chainBuilder
+		if !m.chainBuilder {
+			m.chainChecked = nil
+		}
+		return m, nil
+	}
+
+	// Inside builder: space toggles current row, Enter dispatches the chain,
+	// Esc cancels. Up/Down still navigate normally (main switch handles it).
+	if m.activeTab == TabCommands && m.mode == ModeSingle && m.chainBuilder {
+		switch k {
+		case "space", " ":
+			if len(m.filtered) > 0 {
+				m.toggleChainSelection(m.filtered[m.selected].Name)
+			}
+			return m, nil
+		case "esc":
+			m.chainBuilder = false
+			m.chainChecked = nil
+			return m, nil
+		case m.keys.Run, m.keys.RunAlt:
+			if len(m.chainChecked) == 0 {
+				return m, nil
+			}
+			return m.startChainFromSelection()
+		}
+	}
+
+	// Chain-mode sidebar navigation and re-run on the commands tab.
+	if m.activeTab == TabCommands && m.mode == ModeChain {
+		switch k {
+		case m.keys.Up:
+			if m.chainSel > 0 {
+				m.chainSel--
+			}
+			return m, nil
+		case m.keys.Down:
+			if m.chainSel < len(m.chains)-1 {
+				m.chainSel++
+			}
+			return m, nil
+		case m.keys.Run, m.keys.RunAlt:
+			if !m.running && m.chainSel < len(m.chains) && len(m.chains[m.chainSel].Commands) > 0 {
+				return m.startChainFromCommands(m.chains[m.chainSel].Commands)
+			}
+			return m, nil
 		}
 	}
 
@@ -1437,10 +1589,14 @@ func commandMakefileSection(lines []string, name string) []string {
 // --- run dispatch ------------------------------------------------------------
 
 func (m Model) triggerRun() (tea.Model, tea.Cmd) {
-	if len(m.filtered) == 0 || m.running {
+	if len(m.filtered) == 0 {
 		return m, nil
 	}
 	cmd := m.filtered[m.selected]
+	if m.running {
+		m.enqueueCommand(cmd.Name)
+		return m, nil
+	}
 	// Confirmation precedence (top wins):
 	//   1. [no-confirm] tag in the Makefile   → never ask, even in prod/staging
 	//   2. [confirm] tag                      → always ask, any env
@@ -1460,6 +1616,23 @@ func (m Model) dispatchRun() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	cmdMeta := m.filtered[m.selected]
+	return m.startSingleRun(cmdMeta)
+}
+
+// startSingleRun begins fresh execution of cmdMeta. The chain state is reset
+// to a single-element chain; subsequent enqueues (shortcuts while running)
+// append to it. If the run ends without additions, no chain is persisted.
+func (m Model) startSingleRun(cmdMeta source.Command) (tea.Model, tea.Cmd) {
+	m.chainCommands = []string{cmdMeta.Name}
+	m.chainStepIdx = 0
+	m.chainRunIDs = m.chainRunIDs[:0]
+	m.chainStartAt = time.Now()
+	return m.dispatchCommand(cmdMeta)
+}
+
+// dispatchCommand fires the given command as a single step. Caller has
+// already configured chain state (chainCommands / chainStepIdx) as needed.
+func (m Model) dispatchCommand(cmdMeta source.Command) (tea.Model, tea.Cmd) {
 	if cmdMeta.Interactive {
 		return m.dispatchInteractive(cmdMeta.Name)
 	}
@@ -1471,6 +1644,133 @@ func (m Model) dispatchRun() (tea.Model, tea.Cmd) {
 	stream := cmdMeta.Stream
 	startCmd := func() tea.Msg { return RunStartMsg{Command: name, Stream: stream} }
 	return m, tea.Batch(startCmd, waitNext(ch))
+}
+
+// enqueueCommand appends name to the active chain. Called when the user
+// presses a shortcut (or Enter) while another command is still running.
+func (m *Model) enqueueCommand(name string) {
+	m.chainCommands = append(m.chainCommands, name)
+}
+
+// advanceChain dispatches the next step in chainCommands after a successful
+// step. Returns (model, nil, false) if there are no more steps to run.
+func (m Model) advanceChain() (tea.Model, tea.Cmd, bool) {
+	next := m.chainStepIdx + 1
+	if next >= len(m.chainCommands) {
+		return m, nil, false
+	}
+	m.chainStepIdx = next
+	name := m.chainCommands[next]
+	for _, c := range m.commands {
+		if c.Name == name {
+			model, cmd := m.dispatchCommand(c)
+			return model, cmd, true
+		}
+	}
+	// Unknown target (removed from Makefile mid-chain): treat as failure.
+	return m, nil, false
+}
+
+// loadChainsCmd fetches both the deduplicated chain summaries (sidebar) and
+// the per-execution chain history (history tab).
+func (m Model) loadChainsCmd() tea.Cmd {
+	if m.db == nil {
+		return nil
+	}
+	database := m.db
+	limit := m.chainHistoryMax
+	if limit <= 0 {
+		limit = 100
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		summaries, err := database.ListChainSummaries(ctx, limit)
+		if err != nil {
+			return HistoryErrorMsg{Err: fmt.Errorf("load chains: %w", err)}
+		}
+		runs, err := database.ListChainRuns(ctx, limit)
+		if err != nil {
+			return HistoryErrorMsg{Err: fmt.Errorf("load chain runs: %w", err)}
+		}
+		return ChainsLoadedMsg{Chains: summaries, Runs: runs}
+	}
+}
+
+// persistChain upserts the sequence definition, opens+closes a sequence_run
+// row, and links the per-step runs. Called once a chain (len >= 2) ends.
+func (m Model) persistChain(finalStatus db.RunStatus) {
+	if m.db == nil || len(m.chainRunIDs) < 2 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmds := m.chainCommands[:len(m.chainRunIDs)] // only actually-executed steps
+	seqID, err := m.db.UpsertChainSequence(ctx, cmds)
+	if err != nil {
+		return
+	}
+	srID, err := m.db.StartSequenceRun(ctx, seqID, m.chainStartAt)
+	if err != nil {
+		return
+	}
+	_ = m.db.FinishSequenceRun(ctx, srID, finalStatus, time.Now(), time.Since(m.chainStartAt))
+	for i, runID := range m.chainRunIDs {
+		_, _ = m.db.SQL().ExecContext(ctx,
+			`UPDATE runs SET sequence_run_id = ?, step_index = ? WHERE id = ?`,
+			srID, i+1, runID)
+	}
+	keep := m.chainHistoryMax
+	if keep <= 0 {
+		keep = 100
+	}
+	_ = m.db.PruneChainRuns(ctx, keep)
+}
+
+// toggleChainSelection adds/removes name from the builder selection,
+// preserving execution order.
+func (m *Model) toggleChainSelection(name string) {
+	for i, n := range m.chainChecked {
+		if n == name {
+			m.chainChecked = append(m.chainChecked[:i], m.chainChecked[i+1:]...)
+			return
+		}
+	}
+	m.chainChecked = append(m.chainChecked, name)
+}
+
+// startChainFromSelection dispatches the current builder selection as a
+// chain and exits builder mode.
+func (m Model) startChainFromSelection() (tea.Model, tea.Cmd) {
+	cmds := append([]string(nil), m.chainChecked...)
+	m.chainBuilder = false
+	m.chainChecked = nil
+	return m.startChainFromCommands(cmds)
+}
+
+// startChainFromCommands kicks off a pre-built chain (used by the builder
+// flow and the chain-mode re-run flow).
+func (m Model) startChainFromCommands(names []string) (tea.Model, tea.Cmd) {
+	if len(names) == 0 {
+		return m, nil
+	}
+	first := names[0]
+	var head *source.Command
+	for i, c := range m.commands {
+		if c.Name == first {
+			cc := m.commands[i]
+			head = &cc
+			break
+		}
+	}
+	if head == nil {
+		return m, nil
+	}
+	m.chainCommands = names
+	m.chainStepIdx = 0
+	m.chainRunIDs = m.chainRunIDs[:0]
+	m.chainStartAt = time.Now()
+	return m.dispatchCommand(*head)
 }
 
 // dispatchInteractive runs the target with the real TTY attached, suspending
