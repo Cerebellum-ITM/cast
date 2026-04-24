@@ -3,6 +3,7 @@ package source
 import (
 	"bufio"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -21,6 +22,15 @@ type MakefileSource struct {
 //
 // The `## name:` comment wins — the bare `name:` target line that follows is
 // skipped to avoid duplicates.
+//
+// Inline tags in the description drive per-command flags:
+//
+//	## tail-logs: follow the app log [stream]   → marks as streaming
+//	## build: compile [no-stream]               → forces non-stream
+//
+// Targets whose recipe contains follow patterns (tail -f, docker logs -f,
+// journalctl -f, kubectl … -f, watch …) are auto-detected as streams unless
+// [no-stream] is set.
 func (m *MakefileSource) Load() ([]Command, error) {
 	f, err := os.Open(m.Path)
 	if err != nil {
@@ -29,9 +39,26 @@ func (m *MakefileSource) Load() ([]Command, error) {
 	defer f.Close()
 
 	var commands []Command
-	// skipTarget holds the name of the next target line to skip (because it
-	// was already added via a ## comment).
 	skipTarget := ""
+
+	// Buffer holds recipe lines of the *current* target so we can auto-detect
+	// streaming after the whole target has been seen. idx points to the command
+	// whose recipe is being collected (-1 = none).
+	recipeFor := -1
+
+	flushRecipe := func(body []string) {
+		if recipeFor < 0 || recipeFor >= len(commands) {
+			return
+		}
+		if commands[recipeFor].Stream { // already set via tag override
+			return
+		}
+		if isStreamRecipe(body) {
+			commands[recipeFor].Stream = true
+		}
+	}
+
+	var currentBody []string
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -39,6 +66,11 @@ func (m *MakefileSource) Load() ([]Command, error) {
 
 		// Documented comment: ## name: description
 		if strings.HasPrefix(line, "## ") {
+			// New target starting → flush previous recipe buffer.
+			flushRecipe(currentBody)
+			currentBody = currentBody[:0]
+			recipeFor = -1
+
 			rest := strings.TrimPrefix(line, "## ")
 			if idx := strings.Index(rest, ":"); idx != -1 {
 				name := strings.TrimSpace(rest[:idx])
@@ -46,13 +78,19 @@ func (m *MakefileSource) Load() ([]Command, error) {
 				if name == "" {
 					continue
 				}
-				commands = append(commands, Command{
+				cleanDesc, stream, streamSet := extractStreamTag(desc)
+				cmd := Command{
 					Name:     name,
-					Desc:     desc,
+					Desc:     cleanDesc,
 					Tags:     inferTags(name),
 					Shortcut: autoShortcut(name, commands),
-				})
-				skipTarget = name // next bare target line is this same target
+				}
+				if streamSet {
+					cmd.Stream = stream
+				}
+				commands = append(commands, cmd)
+				recipeFor = len(commands) - 1
+				skipTarget = name
 			}
 			continue
 		}
@@ -61,16 +99,20 @@ func (m *MakefileSource) Load() ([]Command, error) {
 		if strings.HasSuffix(strings.TrimSpace(line), ":") &&
 			!strings.HasPrefix(line, "\t") && !strings.HasPrefix(line, " ") {
 
+			flushRecipe(currentBody)
+			currentBody = currentBody[:0]
+			recipeFor = -1
+
 			raw := strings.TrimSuffix(strings.TrimSpace(line), ":")
-			name := strings.Fields(raw)[0] // handle "name: dep1 dep2" style
+			name := strings.Fields(raw)[0]
 			if name == "" || strings.ContainsAny(name, ".$()") {
 				skipTarget = ""
 				continue
 			}
 
-			// Skip if already registered via ## comment
 			if name == skipTarget {
 				skipTarget = ""
+				recipeFor = len(commands) - 1 // continue collecting recipe for docstring'd target
 				continue
 			}
 			skipTarget = ""
@@ -80,16 +122,61 @@ func (m *MakefileSource) Load() ([]Command, error) {
 				Tags:     inferTags(name),
 				Shortcut: autoShortcut(name, commands),
 			})
+			recipeFor = len(commands) - 1
 			continue
 		}
 
-		// Any other line resets the skip guard only if it's not a recipe line.
-		if !strings.HasPrefix(line, "\t") {
-			skipTarget = ""
+		// Recipe line — tab-indented.
+		if strings.HasPrefix(line, "\t") {
+			if recipeFor >= 0 {
+				currentBody = append(currentBody, line)
+			}
+			continue
 		}
+
+		// Any other non-recipe line ends the current recipe block.
+		flushRecipe(currentBody)
+		currentBody = currentBody[:0]
+		recipeFor = -1
+		skipTarget = ""
 	}
 
+	// Flush tail buffer (file may end inside a target recipe).
+	flushRecipe(currentBody)
+
 	return commands, scanner.Err()
+}
+
+// extractStreamTag looks for `[stream]` or `[no-stream]` at the end of desc and
+// returns the cleaned description plus the parsed flag.
+func extractStreamTag(desc string) (clean string, stream bool, set bool) {
+	lower := strings.ToLower(desc)
+	switch {
+	case strings.HasSuffix(lower, "[stream]"):
+		return strings.TrimSpace(desc[:len(desc)-len("[stream]")]), true, true
+	case strings.HasSuffix(lower, "[no-stream]"):
+		return strings.TrimSpace(desc[:len(desc)-len("[no-stream]")]), false, true
+	}
+	return desc, false, false
+}
+
+var streamRecipeRe = regexp.MustCompile(
+	`(?i)(^|[\s;&|])(tail\s+(-[a-zA-Z]*f|--follow)` +
+		`|docker(\s+compose)?\s+logs\s+(-[a-zA-Z]*f|--follow)` +
+		`|kubectl\s+logs\b[^\n]*\s(-[a-zA-Z]*f|--follow)` +
+		`|journalctl\b[^\n]*\s(-[a-zA-Z]*f|--follow)` +
+		`|watch\s+` +
+		`)`,
+)
+
+// isStreamRecipe reports whether any recipe line matches a known follow/stream pattern.
+func isStreamRecipe(body []string) bool {
+	for _, ln := range body {
+		if streamRecipeRe.MatchString(ln) {
+			return true
+		}
+	}
+	return false
 }
 
 // inferTags returns auto-detected category tags based on the command name.

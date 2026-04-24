@@ -45,7 +45,10 @@ const (
 type SplashDoneMsg struct{}
 
 // RunStartMsg signals that command execution has begun.
-type RunStartMsg struct{ Command string }
+type RunStartMsg struct {
+	Command string
+	Stream  bool
+}
 
 // RunOutputMsg carries a single streamed output line.
 type RunOutputMsg struct{ Line string }
@@ -70,6 +73,10 @@ type HistoryErrorMsg struct{ Err error }
 
 // tickMsg drives the progress bar animation.
 type tickMsg struct{}
+
+// maxOutputLines caps the in-memory output buffer so long streams (hours of
+// docker logs) don't leak memory.
+const maxOutputLines = 2000
 
 // --- Model -------------------------------------------------------------------
 
@@ -131,6 +138,10 @@ type Model struct {
 	lastRunOK   bool
 	hasLastRun  bool
 	streamCh    <-chan tea.Msg
+	runCancel   context.CancelFunc // non-nil while a run is active
+	streaming   bool               // current run is a long-lived log stream
+	livePulse   bool               // flipped each tick for LIVE dot animation
+	interrupted bool               // current/last run was manually canceled
 
 	// Output expand popup
 	showOutputExpand bool
@@ -299,6 +310,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case RunStartMsg:
 		m.running = true
+		m.streaming = msg.Stream
+		m.livePulse = true
+		m.interrupted = false
 		m.runProgress = 0
 		m.output = nil
 		m.lastRunCmd = msg.Command
@@ -307,6 +321,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case runner.OutputMsg:
 		m.output = append(m.output, msg.Line)
+		if len(m.output) > maxOutputLines {
+			m.output = m.output[len(m.output)-maxOutputLines:]
+		}
 		m.outputView.GotoBottom()
 		return m, waitNext(m.streamCh)
 
@@ -315,8 +332,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if startedAt.IsZero() {
 			startedAt = time.Now().Add(-msg.Duration)
 		}
-		run := db.NewRun(m.lastRunCmd, m.env.String(), startedAt, msg.Duration, msg.Err)
+		run := db.NewRun(m.lastRunCmd, m.env.String(), startedAt, msg.Duration, msg.Err, msg.Interrupted)
 		m.streamCh = nil
+		if m.runCancel != nil {
+			m.runCancel()
+			m.runCancel = nil
+		}
 		if m.db != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			if id, err := m.db.InsertRun(ctx, run); err == nil {
@@ -328,6 +349,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case RunDoneMsg:
 		m.running = false
+		m.streaming = false
 		m.runProgress = 1.0
 		m.hasLastRun = true
 		m.lastRunOK = msg.Status == db.StatusSuccess
@@ -361,7 +383,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.running {
 			return m, nil
 		}
-		m.runProgress = clampProgress(m.runProgress + 0.02)
+		if m.streaming {
+			m.livePulse = !m.livePulse
+			// keep progress bar full while streaming — indeterminate runs have no ETA
+			m.runProgress = 1.0
+		} else {
+			m.runProgress = clampProgress(m.runProgress + 0.02)
+		}
 		return m, tickCmd()
 
 	case spinner.TickMsg:
@@ -418,7 +446,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	k := msg.String()
 	switch {
-	case k == m.keys.Quit, k == "ctrl+c":
+	case k == "ctrl+c":
+		if m.running && m.runCancel != nil {
+			m.runCancel()
+			m.runCancel = nil
+			m.interrupted = true
+			return m, nil
+		}
+		return m, tea.Quit
+	case k == m.keys.Quit:
 		return m, tea.Quit
 	case k == m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % 4
@@ -720,7 +756,15 @@ func (m Model) handleEnvKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch k {
-	case "q", "ctrl+c":
+	case "ctrl+c":
+		if m.running && m.runCancel != nil {
+			m.runCancel()
+			m.runCancel = nil
+			m.interrupted = true
+			return m, nil
+		}
+		return m, tea.Quit
+	case "q":
 		return m, tea.Quit
 	case "tab", m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % 4
@@ -987,10 +1031,14 @@ func (m Model) dispatchRun() (tea.Model, tea.Cmd) {
 	if len(m.filtered) == 0 {
 		return m, nil
 	}
-	name := m.filtered[m.selected].Name
-	ch := runner.StreamRun(name)
+	cmdMeta := m.filtered[m.selected]
+	name := cmdMeta.Name
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := runner.StreamRun(ctx, name)
 	m.streamCh = ch
-	startCmd := func() tea.Msg { return RunStartMsg{Command: name} }
+	m.runCancel = cancel
+	stream := cmdMeta.Stream
+	startCmd := func() tea.Msg { return RunStartMsg{Command: name, Stream: stream} }
 	return m, tea.Batch(startCmd, waitNext(ch))
 }
 

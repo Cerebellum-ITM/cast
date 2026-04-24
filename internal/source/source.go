@@ -15,6 +15,7 @@ type Command struct {
 	Tags     []string
 	Shortcut string // single-letter keyboard shortcut, e.g. "b"
 	Confirm  bool   // show confirmation modal regardless of active env
+	Stream   bool   // long-running log-streaming command (docker logs -f, tail -f…)
 }
 
 // EnvVar is a single variable from a .env file.

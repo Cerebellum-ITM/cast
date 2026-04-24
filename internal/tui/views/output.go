@@ -15,6 +15,8 @@ type OutputProps struct {
 	Lines       []string
 	History     []db.Run
 	Running     bool
+	Streaming   bool // running command is a long-lived log stream
+	LivePulse   bool // flip each tick to animate the LIVE dot
 	HasLastRun  bool
 	LastRunOK   bool
 	LastRunCmd  string
@@ -28,9 +30,25 @@ type OutputProps struct {
 func Output(p Palette, props OutputProps) string {
 	w, h := props.Width, props.Height
 
-	outputLabel := lipgloss.NewStyle().Foreground(p.Fg).Bold(true).Render("OUTPUT")
+	label := "OUTPUT"
+	if props.Streaming {
+		label = "LIVE"
+	}
+	labelColor := p.Fg
+	if props.Streaming {
+		labelColor = p.StreamAccent
+	}
+	outputLabel := lipgloss.NewStyle().Foreground(labelColor).Bold(true).Render(label)
 	var statusStr string
 	switch {
+	case props.Streaming:
+		dot := "●"
+		dotColor := p.StreamAccent
+		if !props.LivePulse {
+			dotColor = p.Red
+		}
+		statusStr = Style(dotColor, true).Render(dot) + " " +
+			Style(p.FgDim, false).Render("ctrl+c stop · "+Truncate(props.LastRunCmd, 14))
 	case props.Running:
 		statusStr = lipgloss.NewStyle().Foreground(p.Yellow).
 			Render(props.SpinnerView + " " + Truncate(props.LastRunCmd, 10))
@@ -46,7 +64,11 @@ func Output(p Palette, props OutputProps) string {
 	}
 	headerRow := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel).
 		Render(outputLabel + strings.Repeat(" ", hGap) + statusStr)
-	sep := SepLine(p, w)
+	sepColor := p.Border
+	if props.Streaming {
+		sepColor = p.StreamAccent
+	}
+	sep := Style(sepColor, false).Render(strings.Repeat("─", w))
 
 	var progressRow string
 	progH := 0
@@ -54,6 +76,8 @@ func Output(p Palette, props OutputProps) string {
 		progH = 2 // bar row + blank spacer
 		var fillColor color.Color
 		switch {
+		case props.Streaming:
+			fillColor = p.StreamAccent
 		case props.Running:
 			fillColor = p.Accent
 		case props.LastRunOK:
@@ -107,7 +131,7 @@ func renderTermRows(p Palette, output []string, w, h int) []string {
 		if i >= h {
 			break
 		}
-		line := ansi.Truncate(ColorOutputLine(p, l), contentW, "")
+		line := ansi.Truncate(colorizeLogLine(p, l), contentW, "")
 		rows[i] = lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgDeep).
 			Render(line)
 	}

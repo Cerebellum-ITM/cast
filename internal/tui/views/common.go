@@ -15,6 +15,7 @@ type Palette struct {
 	Fg, FgDim, FgMuted                        color.Color
 	Border, Accent                             color.Color
 	Cyan, Green, Yellow, Orange, Red           color.Color
+	StreamAccent                               color.Color
 }
 
 // Style creates a simple foreground lipgloss style.
@@ -118,6 +119,8 @@ func StatusDot(p Palette, status db.RunStatus) string {
 		return Style(p.Red, false).Render("●")
 	case db.StatusRunning:
 		return Style(p.Yellow, false).Render("●")
+	case db.StatusInterrupted:
+		return Style(p.Orange, false).Render("⏹")
 	default:
 		return Style(p.FgDim, false).Render("●")
 	}

@@ -34,9 +34,14 @@ func (r Run) TimeStr() string {
 }
 
 // NewRun builds a Run from a command execution result.
-func NewRun(command string, env string, startedAt time.Time, dur time.Duration, err error) Run {
+// interrupted=true maps to StatusInterrupted regardless of err (SIGINT typically
+// surfaces as a non-nil error from cmd.Wait()).
+func NewRun(command string, env string, startedAt time.Time, dur time.Duration, err error, interrupted bool) Run {
 	status := StatusSuccess
-	if err != nil {
+	switch {
+	case interrupted:
+		status = StatusInterrupted
+	case err != nil:
 		status = StatusError
 	}
 	finished := startedAt.Add(dur)

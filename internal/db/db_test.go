@@ -39,7 +39,7 @@ func TestInsertAndRecentRuns(t *testing.T) {
 	ctx := context.Background()
 
 	started := time.Now().Add(-2 * time.Second)
-	run := NewRun("build", "local", started, 1500*time.Millisecond, nil)
+	run := NewRun("build", "local", started, 1500*time.Millisecond, nil, false)
 	id, err := d.InsertRun(ctx, run)
 	if err != nil {
 		t.Fatalf("InsertRun: %v", err)
@@ -76,7 +76,7 @@ func TestRecentRunsOrderingAndLimit(t *testing.T) {
 
 	start := time.Now().Add(-10 * time.Second)
 	for i, name := range []string{"a", "b", "c"} {
-		r := NewRun(name, "local", start.Add(time.Duration(i)*time.Second), time.Second, nil)
+		r := NewRun(name, "local", start.Add(time.Duration(i)*time.Second), time.Second, nil, false)
 		if _, err := d.InsertRun(ctx, r); err != nil {
 			t.Fatalf("InsertRun %s: %v", name, err)
 		}
@@ -99,7 +99,7 @@ func TestPruneRuns(t *testing.T) {
 
 	start := time.Now().Add(-time.Minute)
 	for i := 0; i < 5; i++ {
-		r := NewRun("cmd", "local", start.Add(time.Duration(i)*time.Second), time.Second, nil)
+		r := NewRun("cmd", "local", start.Add(time.Duration(i)*time.Second), time.Second, nil, false)
 		if _, err := d.InsertRun(ctx, r); err != nil {
 			t.Fatalf("InsertRun: %v", err)
 		}

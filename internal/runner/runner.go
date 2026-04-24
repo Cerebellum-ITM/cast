@@ -2,6 +2,8 @@ package runner
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"os/exec"
 	"time"
 
@@ -13,31 +15,40 @@ type OutputMsg struct{ Line string }
 
 // DoneMsg signals that the command has finished.
 type DoneMsg struct {
-	Err      error
-	Duration time.Duration
+	Err         error
+	Duration    time.Duration
+	Interrupted bool // true when the run was canceled via ctx (user stop)
 }
 
 // Run executes "make <target>" and returns a DoneMsg when finished.
 // For streaming output use StreamRun.
-func Run(target string) tea.Cmd {
+func Run(ctx context.Context, target string) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
-		cmd := exec.Command("make", target)
-		if err := cmd.Run(); err != nil {
-			return DoneMsg{Err: err, Duration: time.Since(start)}
+		cmd := exec.CommandContext(ctx, "make", target)
+		configureProcess(cmd)
+		err := cmd.Run()
+		return DoneMsg{
+			Err:         err,
+			Duration:    time.Since(start),
+			Interrupted: errors.Is(ctx.Err(), context.Canceled),
 		}
-		return DoneMsg{Duration: time.Since(start)}
 	}
 }
 
 // StreamRun starts "make <target>" in a goroutine and returns a channel that
 // emits OutputMsg for each stdout/stderr line and a final DoneMsg when done.
 // The channel is closed after DoneMsg is sent.
-func StreamRun(target string) <-chan tea.Msg {
-	ch := make(chan tea.Msg, 32)
+//
+// ctx cancellation sends SIGINT to the subprocess' process group so child
+// processes (e.g. `docker logs -f` spawned by make) also terminate. If the
+// process does not exit within 2s, SIGKILL is sent.
+func StreamRun(ctx context.Context, target string) <-chan tea.Msg {
+	ch := make(chan tea.Msg, 128)
 	go func() {
 		start := time.Now()
 		cmd := exec.Command("make", target)
+		configureProcess(cmd)
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -53,12 +64,34 @@ func StreamRun(target string) <-chan tea.Msg {
 			return
 		}
 
+		// Watchdog: on ctx cancel, gracefully terminate the process group.
+		killed := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				interruptProcess(cmd)
+				select {
+				case <-killed:
+				case <-time.After(2 * time.Second):
+					killProcess(cmd)
+				}
+			case <-killed:
+			}
+		}()
+
 		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			ch <- OutputMsg{Line: scanner.Text()}
 		}
 
-		ch <- DoneMsg{Err: cmd.Wait(), Duration: time.Since(start)}
+		waitErr := cmd.Wait()
+		close(killed)
+		ch <- DoneMsg{
+			Err:         waitErr,
+			Duration:    time.Since(start),
+			Interrupted: errors.Is(ctx.Err(), context.Canceled),
+		}
 		close(ch)
 	}()
 	return ch

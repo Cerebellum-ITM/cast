@@ -178,6 +178,8 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 		Lines:       m.output,
 		History:     m.history,
 		Running:     m.running,
+		Streaming:   m.streaming,
+		LivePulse:   m.livePulse,
 		HasLastRun:  m.hasLastRun,
 		LastRunOK:   m.lastRunOK,
 		LastRunCmd:  m.lastRunCmd,
