@@ -16,10 +16,17 @@ type GlobalFile struct {
 	History GlobalHistory `toml:"history"`
 	DB      GlobalDB      `toml:"db"`
 	Layout  LayoutSection `toml:"layout"`
+	Source  GlobalSource  `toml:"source"`
 
 	// WIP: Keybindings   GlobalKeybindings   `toml:"keybindings"`
 	// WIP: Notifications GlobalNotifications `toml:"notifications"`
 	// WIP: Update        GlobalUpdate        `toml:"update"`
+}
+
+// GlobalSource controls how cast locates the task-source file (Makefile).
+// LookupDepth=0 disables the walk-up and requires the file in cwd. Default 5.
+type GlobalSource struct {
+	LookupDepth int `toml:"lookup_depth"`
 }
 
 // GlobalTheme controls which theme is active per environment.
@@ -170,6 +177,9 @@ func LoadGlobal() (*GlobalFile, error) {
 	if f.History.ChainMax == 0 {
 		f.History.ChainMax = 100
 	}
+	if f.Source.LookupDepth == 0 {
+		f.Source.LookupDepth = 5
+	}
 	return &f, nil
 }
 
@@ -227,6 +237,12 @@ chain_max = 100   # max chain-execution rows retained in the SQLite db
 
 [db]
 path = ""   # empty = ~/.config/cast/cast.db
+
+[source]
+# When no Makefile (or configured source) is found in cwd, cast walks up to
+# this many parent directories looking for one. Useful for monorepos / git
+# submodules where the workdir sits below the Makefile. 0 disables walk-up.
+lookup_depth = 5
 
 [layout]
 # Panel widths as % of total terminal width.

@@ -54,8 +54,12 @@ type Config struct {
 	Theme Theme
 
 	SourceType  string // "makefile" | "taskfile" | "yaml"
-	SourcePath  string
-	EnvFilePath string // path to the .env file for this project
+	SourcePath  string // absolute path, resolved via walk-up when needed
+	SourceDir   string // dirname(SourcePath); where recipes must execute
+	// SourceLookupDepth: parent directories to walk when resolving SourcePath.
+	// 0 disables walk-up. Default 5.
+	SourceLookupDepth int
+	EnvFilePath       string // path to the .env file for this project
 
 	HistoryMax      int
 	ChainHistoryMax int
@@ -92,8 +96,9 @@ func Default() *Config {
 		SourceType:  "makefile",
 		SourcePath:  "./Makefile",
 		EnvFilePath: ".env",
-		HistoryMax:      100,
-		ChainHistoryMax: 100,
+		HistoryMax:       100,
+		ChainHistoryMax:  100,
+		SourceLookupDepth: 5,
 		DBPath:          filepath.Join(home, ".config", "cast", "cast.db"),
 		OutputWidthPct:  30,
 		SidebarWidthPct: 25,
@@ -124,6 +129,9 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 	}
 	if global.History.ChainMax > 0 {
 		cfg.ChainHistoryMax = global.History.ChainMax
+	}
+	if global.Source.LookupDepth != 0 {
+		cfg.SourceLookupDepth = global.Source.LookupDepth
 	}
 	if global.DB.Path != "" {
 		cfg.DBPath = global.DB.Path
@@ -187,7 +195,55 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 		return nil, err
 	}
 
+	cfg.SourcePath = resolveSourcePath(cfg.SourcePath, cfg.SourceLookupDepth)
+	cfg.SourceDir = filepath.Dir(cfg.SourcePath)
+
 	return cfg, nil
+}
+
+// resolveSourcePath returns an absolute path to the task-source file, walking
+// up to `depth` parent directories from cwd when the relative/default path
+// doesn't exist in cwd. If nothing is found, returns the input unchanged so
+// downstream parsers can surface their own not-found error.
+//
+// The relative structure of `p` is preserved at each ancestor: a value like
+// "build/Makefile" is tried as "<ancestor>/build/Makefile" at each level.
+func resolveSourcePath(p string, depth int) string {
+	if p == "" {
+		return p
+	}
+	if filepath.IsAbs(p) {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		return p
+	}
+	rel := p
+	if len(rel) > 2 && rel[0] == '.' && (rel[1] == '/' || rel[1] == '\\') {
+		rel = rel[2:]
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return p
+	}
+	// Level 0 (cwd) + depth parents.
+	ancestor := cwd
+	for i := 0; i <= depth; i++ {
+		candidate := filepath.Join(ancestor, rel)
+		if _, err := os.Stat(candidate); err == nil {
+			if abs, err := filepath.Abs(candidate); err == nil {
+				return abs
+			}
+			return candidate
+		}
+		parent := filepath.Dir(ancestor)
+		if parent == ancestor {
+			break // reached filesystem root
+		}
+		ancestor = parent
+	}
+	return p
 }
 
 // validateLayout enforces panel-width invariants. When the center panel is

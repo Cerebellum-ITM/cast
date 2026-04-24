@@ -62,6 +62,14 @@ Commands are discovered from `## name: description` comment lines above targets.
 Bare targets without `##` comments are also included (description left empty).
 Tags (`ci`, `go`, `prod`, etc.) and single-letter shortcuts are auto-inferred from the target name.
 
+If `./Makefile` (or the configured source path) is missing from the working
+directory, cast walks up to `source.lookup_depth` parent directories (default
+`5` in `~/.config/cast/cast.toml`) looking for one. When found in a parent,
+commands are executed with `make -C <dir> <target>` so recipes evaluate from
+the Makefile's directory — this is the common case for monorepos and git
+submodules where the workdir sits below the project root. Set
+`lookup_depth = 0` to disable the walk-up.
+
 Per-command flag tags recognized on the `## name: desc …` line:
 
 | Tag | Effect |
