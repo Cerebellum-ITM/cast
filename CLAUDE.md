@@ -110,6 +110,26 @@ Flags: `-env local\|staging\|prod`, `-theme catppuccin\|dracula\|nord`
 
 ---
 
+## Versioning
+
+The CLI version lives in a single constant: `internal/version/version.go`
+(`version.Current`). It is read by the splash screen and by any surface that
+needs to display the current build.
+
+**Bump the version on every user-visible change.** Follow semver:
+
+- `PATCH` (0.4.0 → 0.4.1): bug fixes, copy tweaks, internal refactors with no
+  change to observable behavior.
+- `MINOR` (0.4.x → 0.5.0): new feature, new keybinding, new CLI subcommand,
+  new Makefile tag, or any additive change users could notice.
+- `MAJOR` (0.x.y → 1.0.0): breaking change to config schema, CLI flags, or
+  Makefile tag grammar.
+
+Edit `version.Current` in the same commit that introduces the change — never
+in a separate bookkeeping commit. Current: `0.4.0`.
+
+---
+
 ## Build
 
 ```bash

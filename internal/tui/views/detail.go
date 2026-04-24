@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 
 	"github.com/Cerebellum-ITM/cast/internal/db"
 	"github.com/Cerebellum-ITM/cast/internal/source"
@@ -189,29 +190,105 @@ func renderMakefilePreview(p Palette, props CommandsProps, h int) string {
 	return pathRow + "\n" + preview
 }
 
-// History renders the center panel when the history tab is active.
-func History(p Palette, records []db.Run, w, h int) string {
+// History renders the center panel when the history tab is active as a
+// bordered table (charm.land/lipgloss/v2/table) with per-status coloring.
+// cmds is consulted to classify each run by its runtime type (stream /
+// confirm / no-confirm) in the TYPE column.
+func History(p Palette, records []db.Run, cmds []source.Command, w, h int) string {
 	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
 		Background(p.BgPanel).Foreground(p.Fg).Bold(true).
 		Render("HISTORY")
-	sep := SepLine(p, w)
 
-	var entries []string
+	if len(records) == 0 {
+		empty := lipgloss.NewStyle().Width(w).Padding(1, 2).
+			Background(p.BgPanel).Foreground(p.FgDim).Render("no history yet")
+		return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).
+			Render(titleRow + "\n" + empty)
+	}
+
+	byName := make(map[string]source.Command, len(cmds))
+	for _, c := range cmds {
+		byName[c.Name] = c
+	}
+
+	headers := []string{"", "COMMAND", "TYPE", "DURATION", "STARTED"}
+	rows := make([][]string, 0, len(records))
 	for _, r := range records {
-		dot := StatusDot(p, r.Status)
-		row := dot + " " + Style(p.Fg, true).Render(r.Command) +
-			"  " + Style(p.FgDim, false).Render(r.DurationStr()) +
-			"  " + Style(p.FgMuted, false).Render(r.TimeStr())
-		entries = append(entries, lipgloss.NewStyle().Width(w).Padding(0, 2).
-			Background(p.BgPanel).Render(row))
-	}
-	if len(entries) == 0 {
-		entries = append(entries, lipgloss.NewStyle().Width(w).Padding(1, 2).
-			Background(p.BgPanel).Foreground(p.FgDim).Render("no history yet"))
+		rows = append(rows, []string{
+			StatusDot(p, r.Status),
+			r.Command,
+			classifyRun(byName, r.Command),
+			r.DurationStr(),
+			r.TimeStr(),
+		})
 	}
 
-	content := titleRow + "\n" + sep + "\n" + strings.Join(entries, "\n")
-	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).Render(content)
+	borderStyle := lipgloss.NewStyle().Foreground(p.Border)
+	tbl := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(borderStyle).
+		BorderHeader(true).
+		BorderRow(false).
+		BorderColumn(false).
+		Headers(headers...).
+		Rows(rows...).
+		Width(w - 4).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			s := lipgloss.NewStyle().Padding(0, 1)
+			if row == table.HeaderRow {
+				if col == 0 {
+					return s.Width(3).Align(lipgloss.Center).Foreground(p.FgDim).Bold(true)
+				}
+				return s.Foreground(p.FgDim).Bold(true)
+			}
+			switch col {
+			case 0:
+				// Fixed narrow column so a single dot doesn't expand it.
+				return s.Width(3).Align(lipgloss.Center)
+			case 1:
+				return s.Foreground(p.Fg).Bold(true)
+			case 2:
+				fg := p.FgDim
+				if row >= 0 && row < len(rows) {
+					switch rows[row][2] {
+					case "stream":
+						fg = p.StreamAccent
+					case "confirm":
+						fg = p.Yellow
+					case "no-confirm":
+						fg = p.Green
+					}
+				}
+				return s.Foreground(fg)
+			case 3, 4:
+				return s.Foreground(p.FgMuted)
+			}
+			return s
+		})
+
+	body := lipgloss.NewStyle().Padding(0, 2).Background(p.BgPanel).Render(tbl.Render())
+	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).
+		Render(titleRow + "\n" + body)
+}
+
+// classifyRun returns a one-word runtime classifier for the command, chosen
+// by precedence so each row has at most one tag shown. Falls back to "" when
+// the command isn't in the current source (e.g. historic runs for targets
+// that were since removed from the Makefile).
+func classifyRun(byName map[string]source.Command, name string) string {
+	c, ok := byName[name]
+	if !ok {
+		return ""
+	}
+	switch {
+	case c.Stream:
+		return "stream"
+	case c.NoConfirm:
+		return "no-confirm"
+	case c.Confirm:
+		return "confirm"
+	}
+	return ""
 }
 
 // packChips lays out chips on as many rows as needed so no single row exceeds

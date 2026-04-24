@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/Cerebellum-ITM/cast/internal/config"
+	"github.com/Cerebellum-ITM/cast/internal/version"
 )
 
 const logoASCII = `  ██████╗  █████╗  ███████╗ ████████╗
@@ -88,7 +89,7 @@ func (m Model) View() string {
 	if m.taglineVis {
 		b.WriteString("\n")
 		b.WriteString(m.accent.Render("run spells, not commands") + "  ")
-		b.WriteString(m.dim.Render("v0.1.0") + "\n\n")
+		b.WriteString(m.dim.Render("v"+version.Current) + "\n\n")
 	}
 
 	for i, msg := range initMessages {

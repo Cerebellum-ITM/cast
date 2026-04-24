@@ -39,7 +39,7 @@ func (m Model) renderMain() string {
 
 	hdr := m.renderHeader(p)
 	bdy := clampToHeight(m.renderBody(p, bodyH, centerW), bodyH)
-	sts := views.StatusBar(p, len(m.commands), m.env.String(), m.width)
+	sts := views.StatusBar(p, len(m.commands), m.makefilePath, m.width)
 	full := hdr + "\n" + bdy + "\n" + sts
 
 	if m.showConfirm && len(m.filtered) > 0 {
@@ -330,7 +330,7 @@ func (m Model) renderEnvCenter(p views.Palette, w, h int, vars []source.EnvVar) 
 func (m Model) renderCenter(p views.Palette, w, h int) string {
 	switch m.activeTab {
 	case TabHistory:
-		return views.History(p, m.history, w, h)
+		return views.History(p, m.history, m.commands, w, h)
 	default:
 		var cmd *source.Command
 		if len(m.filtered) > 0 {
