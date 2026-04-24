@@ -10,9 +10,11 @@ import (
 
 // TagsPopupProps holds the data to render the tag-editor popup.
 type TagsPopupProps struct {
-	CmdName  string
-	State    source.DocTagState
-	Selected int // index into the flag list
+	CmdName    string
+	State      source.DocTagState
+	Selected   int // index into the flag list
+	Editing    bool
+	EditBuffer string
 }
 
 // TagFlagItems is the canonical ordered list of flags the popup exposes.
@@ -64,12 +66,30 @@ func TagsPopup(p Palette, props TagsPopupProps) string {
 	}
 
 	rows = append(rows, "")
+	var tagsValue string
+	if props.Editing {
+		tagsValue = Style(p.Fg, false).Render(props.EditBuffer) +
+			Style(p.Accent, false).Render("▌")
+	} else if len(props.State.Tags) == 0 {
+		tagsValue = Style(p.FgMuted, false).Render("(none)")
+	} else {
+		tagsValue = Style(p.Fg, false).Render(strings.Join(props.State.Tags, ", "))
+	}
+	tagsHint := "   press t to edit (comma-separated)"
+	if props.Editing {
+		tagsHint = "   ⏎ save · esc cancel"
+	}
+	rows = append(rows,
+		Style(p.FgDim, false).Render("tags: ")+tagsValue+Style(p.FgMuted, false).Render(tagsHint))
+
+	rows = append(rows, "")
 	shortcutBadge := RenderKeyBadge(p, props.State.Shortcut)
 	shortcutRow := Style(p.FgDim, false).Render("shortcut: ") + shortcutBadge +
 		Style(p.FgMuted, false).Render("   press ctrl+k to edit")
 	rows = append(rows, shortcutRow)
 
-	rows = append(rows, "", Style(p.FgMuted, false).Render("↑↓ nav  space/⏎ toggle  ctrl+k shortcut  esc close"))
+	rows = append(rows, "", Style(p.FgMuted, false).
+		Render("↑↓ nav  space/⏎ toggle  t tags  ctrl+k shortcut  esc close"))
 
 	inner := strings.Join(rows, "\n")
 	return lipgloss.NewStyle().

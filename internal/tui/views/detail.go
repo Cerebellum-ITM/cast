@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -48,21 +49,49 @@ func renderCommandHeader(p Palette, props CommandsProps) (string, int) {
 	cmd := props.Cmd
 
 	nameStr := Style(p.Accent, true).Render(cmd.Name)
-	nameBadge := lipgloss.NewStyle().
-		Background(p.BgSelected).Foreground(p.Fg).Bold(true).
-		Padding(0, 1).Render(capitalize(cmd.Name))
-	row1 := nameStr + "  " + nameBadge
-	if cmd.Category != "" {
-		row1 += "  " + RenderInlineTag(p, cmd.Category)
-	}
-	for _, t := range cmd.Tags {
-		row1 += "  " + RenderInlineTag(p, t)
-	}
+	nameBadge := RenderKeyBadge(p, cmd.Shortcut)
+
+	var envWarn string
 	switch props.Env {
 	case 1:
-		row1 += "  " + Style(p.Orange, false).Render("⚠ staging")
+		envWarn = Style(p.Orange, false).Render("⚠ staging")
 	case 2:
-		row1 += "  " + Style(p.Red, false).Render("⚠ production")
+		envWarn = Style(p.Red, false).Render("⚠ production")
+	}
+
+	// Collect all chips (category + explicit tags + runtime flag chips). They
+	// will be packed onto as many rows as needed so nothing overflows when the
+	// center panel is narrow.
+	var chips []string
+	if cmd.Category != "" {
+		chips = append(chips, RenderInlineTag(p, cmd.Category))
+	}
+	for _, t := range cmd.Tags {
+		chips = append(chips, RenderInlineTag(p, t))
+	}
+	chips = append(chips, renderFlagChips(p, cmd)...)
+
+	row1 := nameStr + "  " + nameBadge
+	if envWarn != "" {
+		row1 += "  " + envWarn
+	}
+	// avail is the max row width inside the center panel's 2-col indent.
+	avail := w - 4
+	if avail < 1 {
+		avail = 1
+	}
+	chipRows := packChips(chips, avail)
+	// Inline the first chip row into row1 when it still fits, so single-row
+	// chip sets stay on the identity line (nameStr + badge + chips).
+	if len(chipRows) > 0 && VisWidth(row1)+2+VisWidth(chipRows[0]) <= avail {
+		row1 = row1 + "  " + chipRows[0]
+		chipRows = chipRows[1:]
+	}
+	rows := []string{row1}
+	// Each wrapped chip row gets a leading blank spacer so the colored chip
+	// backgrounds don't visually touch the row above.
+	for _, cr := range chipRows {
+		rows = append(rows, "", cr)
 	}
 
 	descRow := Style(p.FgDim, false).Render(cmd.Desc)
@@ -90,13 +119,15 @@ func renderCommandHeader(p Palette, props CommandsProps) (string, int) {
 	}
 	cmdRow := cmdBox + strings.Repeat(" ", gapW) + runBtn
 
-	lines := []string{
-		"",
-		Pad(2) + row1,
-		Pad(2) + descRow,
-		"",
-		Pad(2) + cmdRow,
+	lines := []string{""}
+	for _, r := range rows {
+		lines = append(lines, Pad(2)+r)
 	}
+	lines = append(lines,
+		Pad(2)+descRow,
+		"",
+		Pad(2)+cmdRow,
+	)
 
 	if props.ShortcutEditing {
 		prompt := Style(p.Accent, true).Render("⌨ press a key to bind as shortcut") +
@@ -183,9 +214,57 @@ func History(p Palette, records []db.Run, w, h int) string {
 	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).Render(content)
 }
 
-func capitalize(s string) string {
-	if s == "" {
-		return s
+// packChips lays out chips on as many rows as needed so no single row exceeds
+// avail visible columns. Chips are joined with two spaces. An oversized chip
+// takes its own row (it would overflow anywhere, so at least don't cascade).
+func packChips(chips []string, avail int) []string {
+	if len(chips) == 0 {
+		return nil
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	var rows []string
+	var cur []string
+	curW := 0
+	for _, c := range chips {
+		cw := VisWidth(c)
+		gap := 0
+		if len(cur) > 0 {
+			gap = 2
+		}
+		if len(cur) > 0 && curW+gap+cw > avail {
+			rows = append(rows, strings.Join(cur, "  "))
+			cur = cur[:0]
+			curW = 0
+			gap = 0
+		}
+		cur = append(cur, c)
+		curW += gap + cw
+	}
+	if len(cur) > 0 {
+		rows = append(rows, strings.Join(cur, "  "))
+	}
+	return rows
 }
+
+// renderFlagChips returns one inline chip per active Makefile flag tag on cmd.
+// Colors are chosen to match the semantic already used elsewhere in the TUI:
+// confirm/yellow mirrors the confirmation modal, no-confirm/green signals
+// "skips the guard", stream/cyan matches the LIVE badge accent.
+func renderFlagChips(p Palette, cmd *source.Command) []string {
+	var chips []string
+	chip := func(fg color.Color, text string) string {
+		return lipgloss.NewStyle().
+			Foreground(fg).Background(p.BgSelected).
+			Padding(0, 1).Render(text)
+	}
+	if cmd.Confirm {
+		chips = append(chips, chip(p.Yellow, "confirm"))
+	}
+	if cmd.NoConfirm {
+		chips = append(chips, chip(p.Green, "no-confirm"))
+	}
+	if cmd.Stream {
+		chips = append(chips, chip(p.StreamAccent, "stream"))
+	}
+	return chips
+}
+

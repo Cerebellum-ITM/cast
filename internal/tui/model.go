@@ -152,6 +152,9 @@ type Model struct {
 	tagsPopupSel   int
 	tagsPopupState source.DocTagState
 	tagsPopupName  string
+	// Sub-mode inside the tags popup: editing the `[tags=...]` CSV list.
+	tagsEditing    bool
+	tagsEditBuffer string
 
 	// Output expand popup
 	showOutputExpand bool
@@ -767,9 +770,32 @@ func (m Model) openTagsPopup() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleTagsPopupKey routes input while the tag-editor popup is open.
+// handleTagsPopupKey routes input while the tag-editor popup is open. A
+// second sub-mode (tagsEditing) captures text input for the `[tags=...]` CSV
+// list.
 func (m Model) handleTagsPopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
+
+	if m.tagsEditing {
+		switch k {
+		case "esc":
+			m.tagsEditing = false
+			m.tagsEditBuffer = ""
+		case "enter":
+			return m.commitTagsEdit()
+		case "backspace":
+			runes := []rune(m.tagsEditBuffer)
+			if len(runes) > 0 {
+				m.tagsEditBuffer = string(runes[:len(runes)-1])
+			}
+		default:
+			if len(k) == 1 {
+				m.tagsEditBuffer += k
+			}
+		}
+		return m, nil
+	}
+
 	n := len(views.TagFlagItems)
 	switch k {
 	case "esc", m.keys.EditTags:
@@ -787,12 +813,51 @@ func (m Model) handleTagsPopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case " ", "enter":
 		return m.toggleSelectedTag()
+	case "t":
+		m.tagsEditing = true
+		m.tagsEditBuffer = strings.Join(m.tagsPopupState.Tags, ",")
+		return m, nil
 	case m.keys.EditShortcut:
 		m.showTagsPopup = false
 		m.shortcutEditMode = true
 		return m, nil
 	}
 	return m, nil
+}
+
+// commitTagsEdit parses the CSV buffer, writes [tags=...] to the Makefile,
+// and refreshes the popup state from the source file.
+func (m Model) commitTagsEdit() (tea.Model, tea.Cmd) {
+	var tags []string
+	for _, p := range strings.Split(m.tagsEditBuffer, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			tags = append(tags, p)
+		}
+	}
+	if m.makefilePath != "" && m.tagsPopupName != "" {
+		if err := source.UpdateMakefileTags(m.makefilePath, m.tagsPopupName, tags); err == nil {
+			m.makefileLines = loadFileLines(m.makefilePath)
+		}
+		if state, _, err := source.ReadDocTagState(m.makefilePath, m.tagsPopupName); err == nil {
+			m.tagsPopupState = state
+			m.applyTagsToCommand(m.tagsPopupName, state.Tags)
+			m.filtered = filterCommands(m.commands, m.search)
+		}
+	}
+	m.tagsEditing = false
+	m.tagsEditBuffer = ""
+	return m, nil
+}
+
+// applyTagsToCommand mirrors the fresh category tags onto the in-memory
+// command so chips in the sidebar and center header refresh immediately.
+func (m *Model) applyTagsToCommand(name string, tags []string) {
+	for i := range m.commands {
+		if m.commands[i].Name == name {
+			m.commands[i].Tags = tags
+			return
+		}
+	}
 }
 
 // toggleSelectedTag flips the tag currently highlighted in the popup, persists

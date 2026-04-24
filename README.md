@@ -128,6 +128,10 @@ cast env list [-reveal]        list all variables (optionally unmasked)
 cast shortcut list             show assigned shortcuts for all commands
 cast shortcut set CMD K        assign single-char shortcut K to command CMD
 cast shortcut unset CMD        remove shortcut for CMD (falls back to auto)
+
+cast tags list                 show category tags for all commands
+cast tags set CMD a,b          write [tags=a,b] on CMD's Makefile doc line
+cast tags unset CMD            remove [tags=...] from CMD's doc line
 ```
 
 **Flags**: `-env local|staging|prod` · `-theme catppuccin|dracula|nord`
@@ -250,6 +254,7 @@ Tags live at the end of the description and stack in any order.
 | `[no-confirm]` | Never show the confirmation modal — even in `staging` / `prod`. |
 | `[sc=X]` or `[shortcut=X]` | Assign keyboard shortcut `X` (single char). |
 | `[sc=]` | Disable shortcut entirely (renders with `⬢` icon). |
+| `[tags=a,b,c]` | Category tags shown as colored chips in the sidebar and center header. |
 
 ```make
 ## deploy-prod: Deploy to production [confirm] [sc=D]
@@ -285,17 +290,20 @@ both write directly to the `##` comment and preserve unrelated tags:
   keypress becomes its new `[sc=X]` tag (`backspace` clears it, `esc`
   cancels).
 - `ctrl+t` — open a popup with checkbox toggles for `[stream]`,
-  `[no-stream]`, `[confirm]`, `[no-confirm]`. Navigate with `↑` / `↓`
-  (also `j` / `k`), toggle with `space` / `⏎`, `ctrl+k` jumps to the
-  shortcut editor, `esc` closes.
+  `[no-stream]`, `[confirm]`, `[no-confirm]`, plus a line showing the
+  current `[tags=...]` and `[sc=X]`. Navigate with `↑` / `↓` (also
+  `j` / `k`), toggle with `space` / `⏎`, `t` enters the tags editor
+  (comma-separated list; `⏎` saves, `esc` cancels), `ctrl+k` jumps to
+  the shortcut editor, `esc` closes the popup.
   Mutually-exclusive tags (stream ↔ no-stream, confirm ↔ no-confirm) are
   kept consistent automatically.
 
 ### Auto-inference
 
 When no `[sc=…]` tag is present, cast picks the **first unused letter** of the
-command name as the shortcut. Tags (e.g. `go`, `prod`, `ci`) are inferred from
-the name via keyword matching and used for sidebar color-coding.
+command name as the shortcut. Category tags are **not** inferred — use
+`[tags=a,b,c]` in the Makefile (or `cast tags set CMD a,b`) to attach them
+explicitly. Commands with no tags simply render without chips.
 
 ### Shortcut resolution order
 

@@ -87,7 +87,7 @@ func (m *MakefileSource) Load() ([]Command, error) {
 				cmd := Command{
 					Name:      name,
 					Desc:      meta.Desc,
-					Tags:      inferTags(name),
+					Tags:      meta.state.Tags,
 					Confirm:   meta.state.Confirm,
 					NoConfirm: meta.state.NoConfirm,
 				}
@@ -131,7 +131,6 @@ func (m *MakefileSource) Load() ([]Command, error) {
 
 			commands = append(commands, Command{
 				Name:     name,
-				Tags:     inferTags(name),
 				Shortcut: autoShortcut(name, commands),
 			})
 			streamPinned = append(streamPinned, false)
@@ -163,12 +162,14 @@ func (m *MakefileSource) Load() ([]Command, error) {
 // DocTagState captures every flag-style tag we recognize on a `## name: desc`
 // line. Exported so callers can inspect and mutate tags uniformly.
 type DocTagState struct {
-	Shortcut    string // single-char; "" means none
-	HasShortcut bool   // true iff [sc=X] was present in source
-	StreamSet   bool   // true iff [stream] or [no-stream] present
-	Stream      bool   // value when StreamSet
-	Confirm     bool   // [confirm] present
-	NoConfirm   bool   // [no-confirm] present
+	Shortcut    string   // single-char; "" means none
+	HasShortcut bool     // true iff [sc=X] was present in source
+	Tags        []string // category tags from [tags=a,b,c]; nil if absent
+	HasTags     bool     // true iff [tags=...] was present (even if empty list)
+	StreamSet   bool     // true iff [stream] or [no-stream] present
+	Stream      bool     // value when StreamSet
+	Confirm     bool     // [confirm] present
+	NoConfirm   bool     // [no-confirm] present
 }
 
 // docMeta is the parse result for the description portion of a doc line.
@@ -227,6 +228,13 @@ func extractDocTags(desc string) docMeta {
 				val = val[:1]
 			}
 			m.state.Shortcut, m.state.HasShortcut = val, true
+		case strings.HasPrefix(lower, "tags="):
+			if m.state.HasTags {
+				return m
+			}
+			val := inner[strings.Index(inner, "=")+1:]
+			m.state.Tags = splitTagList(val)
+			m.state.HasTags = true
 		default:
 			return m
 		}
@@ -234,15 +242,32 @@ func extractDocTags(desc string) docMeta {
 	}
 }
 
+// splitTagList parses `a, b ,c` into ["a","b","c"] with whitespace trimmed
+// and empty entries dropped.
+func splitTagList(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // renderDocTags formats state in a canonical order:
 //
-//	[sc=X] [confirm]/[no-confirm] [stream]/[no-stream]
+//	[sc=X] [tags=a,b] [confirm]/[no-confirm] [stream]/[no-stream]
 //
-// Absent tags are omitted entirely — never emit `[sc=]`.
+// Absent tags are omitted entirely — never emit `[sc=]` or `[tags=]`.
 func renderDocTags(state DocTagState) string {
 	var tags []string
 	if state.HasShortcut && state.Shortcut != "" {
 		tags = append(tags, "[sc="+state.Shortcut+"]")
+	}
+	if state.HasTags && len(state.Tags) > 0 {
+		tags = append(tags, "[tags="+strings.Join(state.Tags, ",")+"]")
 	}
 	switch {
 	case state.Confirm:
@@ -375,6 +400,20 @@ func UpdateMakefileShortcut(path, cmdName, shortcut string) error {
 	})
 }
 
+// UpdateMakefileTags rewrites the `[tags=...]` tag on cmdName's doc line.
+// Passing a nil or empty slice removes the tag entirely.
+func UpdateMakefileTags(path, cmdName string, tags []string) error {
+	return mutateMakefileDocLine(path, cmdName, func(s *DocTagState) {
+		if len(tags) == 0 {
+			s.HasTags = false
+			s.Tags = nil
+			return
+		}
+		s.HasTags = true
+		s.Tags = tags
+	})
+}
+
 // UpdateMakefileFlag toggles a presence-only flag (`stream`, `no-stream`,
 // `confirm`, `no-confirm`) on the doc line of cmdName. on=false removes the
 // flag; on=true adds it and clears the mutually-exclusive partner so the pair
@@ -427,33 +466,6 @@ func isStreamRecipe(body []string) bool {
 		}
 	}
 	return false
-}
-
-// inferTags returns auto-detected category tags based on the command name.
-func inferTags(name string) []string {
-	n := strings.ToLower(name)
-	type rule struct {
-		substr string
-		tag    string
-	}
-	rules := []rule{
-		{"deploy", "prod"},
-		{"prod", "prod"},
-		{"release", "go"},
-		{"build", "go"},
-		{"golangci", "golangci"},
-		{"lint", "golangci"},
-		{"test", "ci"},
-		{"bench", "ci"},
-		{"local", "local"},
-		{"run", "local"},
-	}
-	for _, r := range rules {
-		if strings.Contains(n, r.substr) {
-			return []string{r.tag}
-		}
-	}
-	return nil
 }
 
 // autoShortcut assigns the first unused letter of name as a shortcut.

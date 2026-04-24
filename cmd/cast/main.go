@@ -31,6 +31,9 @@ Usage:
   cast shortcut list        show assigned shortcuts for all commands
   cast shortcut set CMD K   assign single-char shortcut K to command CMD
   cast shortcut unset CMD   remove shortcut for CMD (falls back to auto)
+  cast tags list            show category tags for all commands
+  cast tags set CMD a,b     write [tags=a,b] on CMD's Makefile doc line
+  cast tags unset CMD       remove [tags=...] from CMD's doc line
 
 Flags:
   -env   string   environment override: local | staging | prod
@@ -53,6 +56,9 @@ func main() {
 			return
 		case "shortcut":
 			runShortcutCommand(os.Args[2:])
+			return
+		case "tags":
+			runTagsCommand(os.Args[2:])
 			return
 		case "-h", "--help", "help":
 			fmt.Print(usage)
@@ -540,4 +546,80 @@ func upsertShortcut(src, cmdName, key string) string {
 			append([]string{newLine}, lines[blockStart+1:]...)...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// runTagsCommand dispatches `cast tags` subcommands. Unlike shortcut overrides
+// (which live in .cast.toml), tags are stored as a `[tags=a,b,c]` marker on
+// the Makefile doc line itself — the same place `cast` reads them from.
+func runTagsCommand(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "cast tags: missing subcommand (list | set | unset)")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "list":
+		runTagsList()
+	case "set":
+		if len(args) != 3 {
+			fmt.Fprintln(os.Stderr, "cast tags set: expected 2 args — CMD and comma-separated TAGS")
+			os.Exit(1)
+		}
+		runTagsSet(args[1], args[2])
+	case "unset":
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "cast tags unset: expected 1 arg — CMD")
+			os.Exit(1)
+		}
+		runTagsSet(args[1], "")
+	default:
+		fmt.Fprintf(os.Stderr, "cast tags: unknown subcommand %q\n", args[0])
+		os.Exit(1)
+	}
+}
+
+func runTagsList() {
+	cfg, err := config.Load("", "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast tags list: config: %v\n", err)
+		os.Exit(1)
+	}
+	cmds, err := (&source.MakefileSource{Path: cfg.SourcePath}).Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast tags list: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("tags for %d commands (source: %s):\n\n", len(cmds), cfg.SourcePath)
+	fmt.Printf("  %-24s  %s\n", "COMMAND", "TAGS")
+	for _, c := range cmds {
+		tags := "·"
+		if len(c.Tags) > 0 {
+			tags = strings.Join(c.Tags, ", ")
+		}
+		fmt.Printf("  %-24s  %s\n", c.Name, tags)
+	}
+}
+
+func runTagsSet(cmdName, csv string) {
+	cfg, err := config.Load("", "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast tags: config: %v\n", err)
+		os.Exit(1)
+	}
+	var tags []string
+	if csv != "" {
+		for _, p := range strings.Split(csv, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				tags = append(tags, p)
+			}
+		}
+	}
+	if err := source.UpdateMakefileTags(cfg.SourcePath, cmdName, tags); err != nil {
+		fmt.Fprintf(os.Stderr, "cast tags: %v\n", err)
+		os.Exit(1)
+	}
+	if len(tags) == 0 {
+		fmt.Printf("✓ cleared tags for %s in %s\n", cmdName, cfg.SourcePath)
+	} else {
+		fmt.Printf("✓ set %s → [%s] in %s\n", cmdName, strings.Join(tags, ","), cfg.SourcePath)
+	}
 }

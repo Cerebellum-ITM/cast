@@ -49,9 +49,11 @@ func (m Model) renderMain() string {
 
 	if m.showTagsPopup {
 		box := views.TagsPopup(p, views.TagsPopupProps{
-			CmdName:  m.tagsPopupName,
-			State:    m.tagsPopupState,
-			Selected: m.tagsPopupSel,
+			CmdName:    m.tagsPopupName,
+			State:      m.tagsPopupState,
+			Selected:   m.tagsPopupSel,
+			Editing:    m.tagsEditing,
+			EditBuffer: m.tagsEditBuffer,
 		})
 		return views.OverlayCenter(full, box)
 	}
