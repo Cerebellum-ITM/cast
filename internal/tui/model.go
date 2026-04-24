@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/Cerebellum-ITM/cast/internal/config"
+	"github.com/Cerebellum-ITM/cast/internal/runner"
 	"github.com/Cerebellum-ITM/cast/internal/source"
 	"github.com/Cerebellum-ITM/cast/internal/tui/splash"
 )
@@ -33,23 +34,6 @@ const (
 	StateMain
 )
 
-// RunRecord is a single entry in the run history.
-type RunRecord struct {
-	Command  string
-	Duration string
-	Status   RunStatus
-	Time     string
-}
-
-// RunStatus represents the outcome of a command execution.
-type RunStatus int
-
-const (
-	StatusSuccess RunStatus = iota
-	StatusError
-	StatusRunning
-)
-
 // --- Messages ----------------------------------------------------------------
 
 // SplashDoneMsg is emitted by the splash model when the animation completes.
@@ -63,8 +47,8 @@ type RunOutputMsg struct{ Line string }
 
 // RunDoneMsg signals execution completion.
 type RunDoneMsg struct {
-	Status RunStatus
-	Record RunRecord
+	Status runner.RunStatus
+	Record runner.RunRecord
 }
 
 // tickMsg drives the progress bar animation.
@@ -73,24 +57,23 @@ type tickMsg struct{}
 // --- Model -------------------------------------------------------------------
 
 // Model is the root Bubble Tea model for cast.
-// It owns the splash sub-model until the splash is done, then drives the main
-// three-panel layout.
 type Model struct {
 	// App state
 	state AppState
+	keys  KeyMap
 
 	// Sub-models
 	splashModel splash.Model
 
 	// Data
 	commands []source.Command
-	history  []RunRecord
-	filtered []source.Command // search-filtered view of commands
+	history  []runner.RunRecord
+	filtered []source.Command
 
 	// Makefile viewer
 	makefileLines  []string
 	makefilePath   string
-	makefileOffset int // scroll offset in lines
+	makefileOffset int
 
 	// .env tab state
 	envFile        *source.EnvFile
@@ -105,13 +88,13 @@ type Model struct {
 	theme     config.Theme
 
 	// Execution state
-	running      bool
-	runProgress  float64 // 0.0–1.0
-	output       []string
-	showConfirm  bool
-	lastRunCmd   string
-	lastRunOK    bool // true = success, false = error
-	hasLastRun   bool // whether a run has completed
+	running     bool
+	runProgress float64
+	output      []string
+	showConfirm bool
+	lastRunCmd  string
+	lastRunOK   bool
+	hasLastRun  bool
 
 	// Layout
 	width  int
@@ -119,7 +102,7 @@ type Model struct {
 
 	// Bubbles sub-models
 	searchInput textinput.Model
-	viewport    viewport.Model // unused — kept for future
+	viewport    viewport.Model
 	outputView  viewport.Model
 	spinner     spinner.Model
 	progressBar progress.Model
@@ -139,10 +122,9 @@ func New(cfg *config.Config, commands []source.Command) Model {
 		progress.WithoutPercentage(),
 	)
 
-	mfLines := loadFileLines(cfg.SourcePath)
-
 	return Model{
 		state:         StateSplash,
+		keys:          DefaultKeyMap,
 		splashModel:   splash.New(cfg.Theme),
 		commands:      commands,
 		filtered:      commands,
@@ -151,7 +133,7 @@ func New(cfg *config.Config, commands []source.Command) Model {
 		searchInput:   si,
 		spinner:       sp,
 		progressBar:   pb,
-		makefileLines: mfLines,
+		makefileLines: loadFileLines(cfg.SourcePath),
 		makefilePath:  cfg.SourcePath,
 	}
 }
@@ -161,8 +143,7 @@ func (m Model) Init() tea.Cmd {
 	return m.splashModel.Init()
 }
 
-// Update handles all incoming messages and delegates to the appropriate
-// sub-model or handler based on the current AppState.
+// Update handles all incoming messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
@@ -178,7 +159,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		if m.state == StateSplash {
-			// Any key press skips the splash immediately.
 			m.state = StateMain
 			return m, nil
 		}
@@ -200,8 +180,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.runProgress = 1.0
 		m.hasLastRun = true
-		m.lastRunOK = msg.Status == StatusSuccess
-		m.history = append([]RunRecord{msg.Record}, m.history...)
+		m.lastRunOK = msg.Status == runner.StatusSuccess
+		m.history = append([]runner.RunRecord{msg.Record}, m.history...)
 		return m, nil
 
 	case tickMsg:
@@ -222,7 +202,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Delegate remaining messages to the splash while in splash state.
 	if m.state == StateSplash {
 		var cmd tea.Cmd
 		m.splashModel, cmd = m.splashModel.Update(msg)
@@ -233,7 +212,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the entire UI for the current frame.
-// In bubbletea v2, View() returns tea.View (not string).
 func (m Model) View() tea.View {
 	var content string
 	if m.state == StateSplash {
@@ -246,92 +224,69 @@ func (m Model) View() tea.View {
 	return v
 }
 
-// --- internal helpers --------------------------------------------------------
+// --- key handling ------------------------------------------------------------
 
-// handleKey processes keyboard input in the main TUI state.
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	// Modal intercepts all keys when visible.
 	if m.showConfirm {
 		return m.handleConfirmModal(msg)
 	}
-
-	// Search input captures keys when focused.
 	if m.searchInput.Focused() {
 		return m.handleSearchKey(msg)
 	}
 
-	switch msg.String() {
-	case "q", "ctrl+c":
+	k := msg.String()
+	switch {
+	case k == m.keys.Quit, k == "ctrl+c":
 		return m, tea.Quit
-
-	case "tab":
+	case k == m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % 4
-		return m, nil
-
-	case "shift+tab":
+	case k == m.keys.TabPrev:
 		m.activeTab = (m.activeTab + 3) % 4
-		return m, nil
-
-	case "up", "k":
+	case k == m.keys.Up, k == m.keys.UpVim:
 		if m.selected > 0 {
 			m.selected--
 		}
-		return m, nil
-
-	case "down", "j":
+	case k == m.keys.Down, k == m.keys.DownVim:
 		if m.selected < len(m.filtered)-1 {
 			m.selected++
 		}
-		return m, nil
-
-	case "g":
+	case k == m.keys.Top:
 		m.selected = 0
-		return m, nil
-
-	case "G":
+	case k == m.keys.Bottom:
 		if len(m.filtered) > 0 {
 			m.selected = len(m.filtered) - 1
 		}
-		return m, nil
-
-	case "/":
+	case k == m.keys.Search:
 		m.searchInput.Focus()
 		return m, textinput.Blink
-
-	case "enter", "r":
+	case k == m.keys.Run, k == m.keys.RunAlt:
 		return m.triggerRun()
-
-	case "ctrl+r":
+	case k == m.keys.RerunLast:
 		if len(m.history) > 0 {
-			// re-run last — to be implemented with runner package
+			// TODO: re-run last via runner.StreamRun
 		}
-		return m, nil
-
-	case "s":
+	case k == m.keys.ToggleSecrets:
 		if m.activeTab == TabEnv {
 			m.showSecrets = !m.showSecrets
 		}
-		return m, nil
-
 	// Quick shortcuts
-	case "b":
+	case k == "b":
 		return m.runByName("build")
-	case "B":
+	case k == "B":
 		return m.runByName("build_release")
-	case "t":
+	case k == "t":
 		return m.runByName("test")
-	case "l":
+	case k == "l":
 		return m.runByName("lint")
-	case "c":
+	case k == "c":
 		return m.runByName("clean")
-	case "d":
+	case k == "d":
 		return m.runByName("deploy")
 	}
 
 	return m, nil
 }
 
-// handleSearchKey handles keys while the search input is focused.
 func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -354,12 +309,10 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// handleConfirmModal handles keys inside the production confirm dialog.
 func (m Model) handleConfirmModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "n":
 		m.showConfirm = false
-		return m, nil
 	case "enter", "y":
 		m.showConfirm = false
 		return m.dispatchRun()
@@ -367,7 +320,8 @@ func (m Model) handleConfirmModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// triggerRun either opens the confirm modal (prod) or dispatches immediately.
+// --- run dispatch ------------------------------------------------------------
+
 func (m Model) triggerRun() (tea.Model, tea.Cmd) {
 	if len(m.filtered) == 0 || m.running {
 		return m, nil
@@ -379,16 +333,26 @@ func (m Model) triggerRun() (tea.Model, tea.Cmd) {
 	return m.dispatchRun()
 }
 
-// dispatchRun sends the RunStartMsg for the currently selected command.
 func (m Model) dispatchRun() (tea.Model, tea.Cmd) {
 	if len(m.filtered) == 0 {
 		return m, nil
 	}
-	cmd := m.filtered[m.selected]
-	return m, func() tea.Msg { return RunStartMsg{Command: cmd.Name} }
+	name := m.filtered[m.selected].Name
+
+	startCmd := func() tea.Msg { return RunStartMsg{Command: name} }
+	runCmd := func() tea.Msg {
+		doneMsg := runner.Run(name)().(runner.DoneMsg)
+		rec := runner.NewRecord(name, doneMsg.Duration, doneMsg.Err)
+		status := runner.StatusSuccess
+		if doneMsg.Err != nil {
+			status = runner.StatusError
+		}
+		return RunDoneMsg{Status: status, Record: rec}
+	}
+
+	return m, tea.Batch(startCmd, runCmd)
 }
 
-// runByName selects a command by name and triggers it.
 func (m Model) runByName(name string) (tea.Model, tea.Cmd) {
 	for i, c := range m.filtered {
 		if c.Name == name {
@@ -399,28 +363,26 @@ func (m Model) runByName(name string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// recalcLayout recomputes viewport sizes after a window resize.
-func (m *Model) recalcLayout() {
-	const sidebarW = 22
-	const outputW = 30
-	const borders = 2
+// --- layout ------------------------------------------------------------------
 
+func (m *Model) recalcLayout() {
+	const borders = 2
 	centerW := m.width - sidebarW - outputW - borders
 	if centerW < 10 {
 		centerW = 10
 	}
-	contentH := m.height - 2 // subtract header + status bar
+	contentH := m.height - 2
 	if contentH < 1 {
 		contentH = 1
 	}
-
 	m.viewport.SetWidth(centerW)
 	m.viewport.SetHeight(contentH)
 	m.outputView.SetWidth(outputW)
 	m.outputView.SetHeight(contentH)
 }
 
-// filterCommands returns commands whose name or description contains query.
+// --- helpers -----------------------------------------------------------------
+
 func filterCommands(cmds []source.Command, query string) []source.Command {
 	if query == "" {
 		return cmds
@@ -438,10 +400,6 @@ func containsFold(s, sub string) bool {
 	if len(sub) == 0 {
 		return true
 	}
-	return foldContains(s, sub)
-}
-
-func foldContains(s, sub string) bool {
 	for i := 0; i <= len(s)-len(sub); i++ {
 		if equalFold(s[i:i+len(sub)], sub) {
 			return true
@@ -480,7 +438,6 @@ func tickCmd() tea.Cmd {
 	return func() tea.Msg { return tickMsg{} }
 }
 
-// loadFileLines reads a text file into a slice of lines.
 func loadFileLines(path string) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
