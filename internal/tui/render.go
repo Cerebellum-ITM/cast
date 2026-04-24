@@ -150,7 +150,7 @@ func (m Model) renderSidebar(p palette, w, h int) string {
 	const (
 		searchRows = 1
 		sepRows    = 1 // separator below search
-		hintRows   = 1
+		hintRows   = 3 // 2 hint rows + 1 blank spacer at the bottom
 		hintSepR   = 1 // separator above hints
 	)
 	listH := h - searchRows - sepRows - hintRows - hintSepR
@@ -323,15 +323,39 @@ func renderTagChip(p palette, text string) string {
 
 func (m Model) renderHintsRow(p palette, w int) string {
 	hints := [][2]string{{"↑↓", "nav"}, {"⏎", "run"}, {"/", "search"}, {"q", "quit"}}
-	var parts []string
+	avail := w - 2 // subtract Padding(0,1) left+right
+	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.bgPanel)
+
+	// Pack hints into rows: each row holds as many hints as fit in avail cols.
+	var lines []string
+	var rowParts []string
+	rowUsed := 0
+
 	for _, h := range hints {
 		key := style(p.accent, true).Render("[" + h[0] + "]")
 		lbl := style(p.fgDim, false).Render(h[1])
-		parts = append(parts, key+" "+lbl)
+		part := key + " " + lbl
+		partW := visWidth(part)
+		gap := 0
+		if len(rowParts) > 0 {
+			gap = 1
+		}
+		if rowUsed+gap+partW > avail && len(rowParts) > 0 {
+			lines = append(lines, rowStyle.Render(strings.Join(rowParts, " ")))
+			rowParts = nil
+			rowUsed = 0
+			gap = 0
+		}
+		rowParts = append(rowParts, part)
+		rowUsed += gap + partW
 	}
-	return lipgloss.NewStyle().Width(w).Padding(0, 1).
-		Background(p.bgPanel).
-		Render(strings.Join(parts, "  "))
+	if len(rowParts) > 0 {
+		lines = append(lines, rowStyle.Render(strings.Join(rowParts, " ")))
+	}
+
+	// Blank spacer row for visual breathing room below hints.
+	lines = append(lines, rowStyle.Render(""))
+	return strings.Join(lines, "\n")
 }
 
 // ── Center panel ──────────────────────────────────────────────────────────────
