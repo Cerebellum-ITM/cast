@@ -62,6 +62,18 @@ func main() {
 		commands = nil
 	}
 
+	if len(cfg.ConfirmTargets) > 0 {
+		confirmSet := make(map[string]bool, len(cfg.ConfirmTargets))
+		for _, t := range cfg.ConfirmTargets {
+			confirmSet[t] = true
+		}
+		for i := range commands {
+			if confirmSet[commands[i].Name] {
+				commands[i].Confirm = true
+			}
+		}
+	}
+
 	m := tui.New(cfg, commands)
 	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {

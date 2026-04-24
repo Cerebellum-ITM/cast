@@ -58,11 +58,21 @@ type GlobalHistory struct {
 
 // LocalFile mirrors .cast.toml found in the working directory.
 type LocalFile struct {
-	Env LocalEnv `toml:"env"`
+	Env      LocalEnv      `toml:"env"`
+	Commands LocalCommands `toml:"commands"`
 
-	// WIP: Source   LocalSource            `toml:"source"`
-	// WIP: Commands LocalCommands          `toml:"commands"`
-	// WIP: Project  LocalProject           `toml:"project"`
+	// WIP: Source  LocalSource  `toml:"source"`
+	// WIP: Project LocalProject `toml:"project"`
+}
+
+// LocalCommands holds project-level command configuration.
+type LocalCommands struct {
+	Confirm LocalConfirm `toml:"confirm"`
+}
+
+// LocalConfirm lists command names that always require a confirmation modal.
+type LocalConfirm struct {
+	Targets []string `toml:"targets"`
 }
 
 // LocalEnv points to the .env file this project uses and declares its environment.

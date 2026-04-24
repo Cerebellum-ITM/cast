@@ -7,6 +7,7 @@ type Command struct {
 	Category string
 	Tags     []string
 	Shortcut string // single-letter keyboard shortcut, e.g. "b"
+	Confirm  bool   // show confirmation modal regardless of active env
 }
 
 // EnvVar is a single variable from a .env file.

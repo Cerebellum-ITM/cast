@@ -58,6 +58,8 @@ type Config struct {
 
 	HistoryMax  int
 	HistoryPath string
+
+	ConfirmTargets []string // command names that always require confirmation
 }
 
 // Default returns a Config with sensible hardcoded defaults.
@@ -108,6 +110,7 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 		if local.Env.File != "" {
 			cfg.EnvFilePath = local.Env.File
 		}
+		cfg.ConfirmTargets = local.Commands.Confirm.Targets
 	}
 
 	// ── Layer 4: CAST_ENV env var ─────────────────────────────────────────

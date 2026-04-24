@@ -26,10 +26,6 @@ func (m Model) renderMain() string {
 	}
 	p := paletteFor(m.theme, m.env)
 
-	if m.showConfirm && len(m.filtered) > 0 {
-		return views.Modal(p, m.filtered[m.selected].Name, m.width, m.height)
-	}
-
 	bodyH := m.height - headerH - statusH
 	if bodyH < 1 {
 		bodyH = 1
@@ -42,8 +38,14 @@ func (m Model) renderMain() string {
 	hdr := m.renderHeader(p)
 	bdy := clampToHeight(m.renderBody(p, bodyH, centerW), bodyH)
 	sts := views.StatusBar(p, len(m.commands), m.env.String(), m.width)
+	full := hdr + "\n" + bdy + "\n" + sts
 
-	return hdr + "\n" + bdy + "\n" + sts
+	if m.showConfirm && len(m.filtered) > 0 {
+		box := views.Modal(p, m.filtered[m.selected].Name, m.env.String())
+		return views.OverlayCenter(full, box)
+	}
+
+	return full
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────

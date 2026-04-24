@@ -30,31 +30,36 @@ func Run(target string) tea.Cmd {
 	}
 }
 
-// StreamRun starts "make <target>" in a goroutine and calls send for every
-// output line and once more when the process exits.
-func StreamRun(target string, send func(tea.Msg)) {
+// StreamRun starts "make <target>" in a goroutine and returns a channel that
+// emits OutputMsg for each stdout/stderr line and a final DoneMsg when done.
+// The channel is closed after DoneMsg is sent.
+func StreamRun(target string) <-chan tea.Msg {
+	ch := make(chan tea.Msg, 32)
 	go func() {
 		start := time.Now()
 		cmd := exec.Command("make", target)
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			send(DoneMsg{Err: err})
+			ch <- DoneMsg{Err: err}
+			close(ch)
 			return
 		}
 		cmd.Stderr = cmd.Stdout
 
 		if err := cmd.Start(); err != nil {
-			send(DoneMsg{Err: err})
+			ch <- DoneMsg{Err: err}
+			close(ch)
 			return
 		}
 
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			send(OutputMsg{Line: scanner.Text()})
+			ch <- OutputMsg{Line: scanner.Text()}
 		}
 
-		err = cmd.Wait()
-		send(DoneMsg{Err: err, Duration: time.Since(start)})
+		ch <- DoneMsg{Err: cmd.Wait(), Duration: time.Since(start)}
+		close(ch)
 	}()
+	return ch
 }

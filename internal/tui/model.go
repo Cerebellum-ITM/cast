@@ -95,6 +95,7 @@ type Model struct {
 	lastRunCmd  string
 	lastRunOK   bool
 	hasLastRun  bool
+	streamCh    <-chan tea.Msg
 
 	// Layout
 	width  int
@@ -171,10 +172,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastRunCmd = msg.Command
 		return m, tea.Batch(m.spinner.Tick, tickCmd())
 
-	case RunOutputMsg:
+	case runner.OutputMsg:
 		m.output = append(m.output, msg.Line)
 		m.outputView.GotoBottom()
-		return m, nil
+		return m, waitNext(m.streamCh)
+
+	case runner.DoneMsg:
+		rec := runner.NewRecord(m.lastRunCmd, msg.Duration, msg.Err)
+		status := runner.StatusSuccess
+		if msg.Err != nil {
+			status = runner.StatusError
+		}
+		m.streamCh = nil
+		return m, func() tea.Msg { return RunDoneMsg{Status: status, Record: rec} }
 
 	case RunDoneMsg:
 		m.running = false
@@ -326,7 +336,8 @@ func (m Model) triggerRun() (tea.Model, tea.Cmd) {
 	if len(m.filtered) == 0 || m.running {
 		return m, nil
 	}
-	if m.env == config.EnvProd {
+	cmd := m.filtered[m.selected]
+	if m.env != config.EnvLocal || cmd.Confirm {
 		m.showConfirm = true
 		return m, nil
 	}
@@ -338,19 +349,20 @@ func (m Model) dispatchRun() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	name := m.filtered[m.selected].Name
-
+	ch := runner.StreamRun(name)
+	m.streamCh = ch
 	startCmd := func() tea.Msg { return RunStartMsg{Command: name} }
-	runCmd := func() tea.Msg {
-		doneMsg := runner.Run(name)().(runner.DoneMsg)
-		rec := runner.NewRecord(name, doneMsg.Duration, doneMsg.Err)
-		status := runner.StatusSuccess
-		if doneMsg.Err != nil {
-			status = runner.StatusError
-		}
-		return RunDoneMsg{Status: status, Record: rec}
-	}
+	return m, tea.Batch(startCmd, waitNext(ch))
+}
 
-	return m, tea.Batch(startCmd, runCmd)
+func waitNext(ch <-chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return msg
+	}
 }
 
 func (m Model) runByName(name string) (tea.Model, tea.Cmd) {
