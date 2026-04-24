@@ -1,6 +1,7 @@
 package views
 
 import (
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -49,9 +50,18 @@ func Output(p Palette, props OutputProps) string {
 
 	var progressRow string
 	progH := 0
-	if props.Running {
-		progressRow = RenderProgressBar(p, w, props.RunProgress)
-		progH = 1
+	if props.Running || props.HasLastRun {
+		progH = 2 // bar row + blank spacer
+		var fillColor color.Color
+		switch {
+		case props.Running:
+			fillColor = p.Accent
+		case props.LastRunOK:
+			fillColor = p.Green
+		default:
+			fillColor = p.Red
+		}
+		progressRow = RenderProgressBar(p, w, props.RunProgress, fillColor)
 	}
 
 	const recentMax = 4
@@ -64,9 +74,10 @@ func Output(p Palette, props OutputProps) string {
 	}
 	termRows := renderTermRows(p, props.Lines, w, termH)
 
+	emptyRow := lipgloss.NewStyle().Width(w).Background(p.BgDeep).Render("")
 	allRows := []string{headerRow, sep}
-	if props.Running {
-		allRows = append(allRows, progressRow)
+	if props.Running || props.HasLastRun {
+		allRows = append(allRows, progressRow, emptyRow)
 	}
 	allRows = append(allRows, termRows...)
 	allRows = append(allRows, recentRows...)

@@ -98,7 +98,7 @@ func renderCommandHeader(p Palette, props CommandsProps) (string, int) {
 	}
 
 	if props.Running {
-		bar := RenderProgressBar(p, w-4, props.RunProgress)
+		bar := RenderProgressBar(p, w-4, props.RunProgress, p.Accent)
 		pct := fmt.Sprintf("%.0f%%", props.RunProgress*100)
 		lines = append(lines, Pad(2)+bar)
 		lines = append(lines, Pad(2)+Style(p.FgDim, false).Render(pct))

@@ -96,8 +96,8 @@ func TagColor(p Palette, tag string) color.Color {
 	}
 }
 
-// RenderProgressBar draws a 1-row block-fill progress bar.
-func RenderProgressBar(p Palette, w int, progress float64) string {
+// RenderProgressBar draws a 1-row block-fill progress bar using fillColor for filled blocks.
+func RenderProgressBar(p Palette, w int, progress float64, fillColor color.Color) string {
 	if w < 2 {
 		return ""
 	}
@@ -105,7 +105,7 @@ func RenderProgressBar(p Palette, w int, progress float64) string {
 	if filled > w {
 		filled = w
 	}
-	return lipgloss.NewStyle().Foreground(p.Accent).Render(strings.Repeat("▓", filled)) +
+	return lipgloss.NewStyle().Foreground(fillColor).Render(strings.Repeat("▓", filled)) +
 		lipgloss.NewStyle().Foreground(p.FgMuted).Render(strings.Repeat("░", w-filled))
 }
 
