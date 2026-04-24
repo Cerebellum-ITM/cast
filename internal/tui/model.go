@@ -1507,11 +1507,25 @@ func filterCommands(cmds []source.Command, query string) []source.Command {
 	}
 	var out []source.Command
 	for _, c := range cmds {
-		if containsFold(c.Name, query) || containsFold(c.Desc, query) {
+		if commandMatches(c, query) {
 			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// commandMatches reports whether the query substring matches the command's
+// name, description, or any of its [tags=…] values (case-insensitive).
+func commandMatches(c source.Command, query string) bool {
+	if containsFold(c.Name, query) || containsFold(c.Desc, query) {
+		return true
+	}
+	for _, t := range c.Tags {
+		if containsFold(t, query) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsFold(s, sub string) bool {
