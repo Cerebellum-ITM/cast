@@ -20,6 +20,8 @@ type KeyMap struct {
 	ExpandOutput   string
 	ExpandMakefile string
 	EnvRestore     string // restore selected history entry (env tab only)
+	OutputWider    string // grow the output panel
+	OutputNarrower string // shrink the output panel
 }
 
 // DefaultKeyMap is the out-of-the-box key configuration.
@@ -41,4 +43,6 @@ var DefaultKeyMap = KeyMap{
 	ExpandOutput:   "ctrl+e",
 	ExpandMakefile: "ctrl+o",
 	EnvRestore:     "r",
+	OutputWider:    "]",
+	OutputNarrower: "[",
 }

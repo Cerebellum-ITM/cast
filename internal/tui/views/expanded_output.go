@@ -59,7 +59,7 @@ func ExpandedOutput(p Palette, lines []string, offset, popupW, popupH int, cmd s
 		rows[i] = emptyRow
 	}
 	for i := 0; i < visH && offset+i < total; i++ {
-		colored := ColorOutputLine(p, lines[offset+i])
+		colored := colorizeLogLine(p, lines[offset+i])
 		line := ansi.Truncate(colored, innerW, "")
 		rows[i] = lipgloss.NewStyle().Width(innerW).Background(p.BgDeep).Render(line)
 	}

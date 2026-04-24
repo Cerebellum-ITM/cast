@@ -153,8 +153,9 @@ type Model struct {
 	makefileExpandLines []string
 
 	// Layout
-	width  int
-	height int
+	width          int
+	height         int
+	outputWidthPct int // 30–60: % of total width used by the output panel
 
 	// Bubbles sub-models
 	searchInput textinput.Model
@@ -207,7 +208,26 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		makefilePath:   cfg.SourcePath,
 		envFile:        envFile,
 		envFilePath:    cfg.EnvFilePath,
+		outputWidthPct: 30,
 	}
+}
+
+// outputPanelW returns the output panel width in columns, derived from the
+// percentage preference (clamped 30–60%). Includes the left divider char, so
+// callers use this everywhere `outputW` used to sit.
+func (m Model) outputPanelW() int {
+	pct := m.outputWidthPct
+	if pct < 30 {
+		pct = 30
+	}
+	if pct > 60 {
+		pct = 60
+	}
+	w := m.width * pct / 100
+	if w < 20 {
+		w = 20
+	}
+	return w
 }
 
 // NewOnTab creates a Model that starts with the given tab active.
@@ -320,10 +340,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.spinner.Tick, tickCmd())
 
 	case runner.OutputMsg:
+		// Detect "follow mode" in the expand popup BEFORE we append the new
+		// line: if the user was scrolled to the bottom (or the buffer is
+		// empty), new lines should keep pulling the view down.
+		follow := true
+		if m.showOutputExpand {
+			visH := m.outputExpandVisH()
+			prevMaxOff := len(m.output) - visH
+			if prevMaxOff < 0 {
+				prevMaxOff = 0
+			}
+			follow = m.outputExpandOff >= prevMaxOff
+		}
+
 		m.output = append(m.output, msg.Line)
 		if len(m.output) > maxOutputLines {
 			m.output = m.output[len(m.output)-maxOutputLines:]
+			if m.outputExpandOff > len(m.output) {
+				m.outputExpandOff = 0
+			}
 		}
+
+		if m.showOutputExpand && follow {
+			visH := m.outputExpandVisH()
+			m.outputExpandOff = len(m.output) - visH
+			if m.outputExpandOff < 0 {
+				m.outputExpandOff = 0
+			}
+		}
+
 		m.outputView.GotoBottom()
 		return m, waitNext(m.streamCh)
 
@@ -491,6 +536,20 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.toggleOutputExpand()
 	case k == m.keys.ExpandMakefile:
 		return m.toggleMakefileExpand()
+	case k == m.keys.OutputWider:
+		m.outputWidthPct += 5
+		if m.outputWidthPct > 60 {
+			m.outputWidthPct = 60
+		}
+		m.recalcLayout()
+		return m, nil
+	case k == m.keys.OutputNarrower:
+		m.outputWidthPct -= 5
+		if m.outputWidthPct < 30 {
+			m.outputWidthPct = 30
+		}
+		m.recalcLayout()
+		return m, nil
 	// Quick shortcuts
 	case k == "b":
 		return m.runByName("build")
@@ -549,6 +608,16 @@ func (m Model) handleExpandedOutput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		maxOff = 0
 	}
 	switch msg.String() {
+	case "ctrl+c":
+		// Cancel the running command but keep the popup open so the user can
+		// review the trailing output.
+		if m.running && m.runCancel != nil {
+			m.runCancel()
+			m.runCancel = nil
+			m.interrupted = true
+			return m, nil
+		}
+		return m, tea.Quit
 	case "esc", m.keys.ExpandOutput:
 		m.showOutputExpand = false
 	case "up", "k":
@@ -1066,6 +1135,7 @@ func (m Model) runByName(name string) (tea.Model, tea.Cmd) {
 
 func (m *Model) recalcLayout() {
 	const borders = 2
+	outputW := m.outputPanelW()
 	centerW := m.width - sidebarW - outputW - borders
 	if centerW < 10 {
 		centerW = 10

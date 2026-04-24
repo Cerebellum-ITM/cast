@@ -13,7 +13,6 @@ import (
 // Layout constants — all in terminal columns / rows.
 const (
 	sidebarW = 24 // includes right divider char
-	outputW  = 28 // includes left divider char
 	headerH  = 4  // 3 content rows (pill height) + 1 separator row
 	statusH  = 1
 )
@@ -30,6 +29,7 @@ func (m Model) renderMain() string {
 	if bodyH < 1 {
 		bodyH = 1
 	}
+	outputW := m.outputPanelW()
 	centerW := m.width - sidebarW - outputW
 	if centerW < 10 {
 		centerW = 10
@@ -161,7 +161,7 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	}
 
 	sbInner := sidebarW - 1
-	outInner := outputW - 1
+	outInner := m.outputPanelW() - 1
 
 	sidebar := views.Sidebar(p, views.SidebarProps{
 		Commands:      m.filtered,
@@ -200,12 +200,13 @@ const envSidebarW = 37
 
 func (m Model) renderEnvBody(p views.Palette, bodyH, totalW int) string {
 	// Recompute center width using the wider env sidebar.
-	envCenterW := totalW + (sidebarW - envSidebarW)
+	_ = totalW
+	envCenterW := m.width - envSidebarW - m.outputPanelW()
 	if envCenterW < 10 {
 		envCenterW = 10
 	}
 	sbInner := envSidebarW - 1
-	outInner := outputW - 1
+	outInner := m.outputPanelW() - 1
 
 	vars := filterEnvVars(m.envFile, m.envSearchInput.Value())
 
