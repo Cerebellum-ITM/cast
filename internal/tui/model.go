@@ -208,7 +208,7 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 	return Model{
 		state:           StateSplash,
 		keys:            DefaultKeyMap,
-		splashModel:     splash.New(cfg.Theme),
+		splashModel:     splash.New(cfg.Theme, cfg.Env),
 		commands:        commands,
 		filtered:        commands,
 		historyMax:      cfg.HistoryMax,

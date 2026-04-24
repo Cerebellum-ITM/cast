@@ -54,10 +54,12 @@ type Model struct {
 	dim    lipgloss.Style
 }
 
-// New creates a new splash Model.
-func New(theme config.Theme) Model {
+// New creates a new splash Model. The env parameter overrides the theme's
+// base accent so the logo reflects the active environment — orange for
+// staging, red for prod — matching the header pill and status bar.
+func New(theme config.Theme, env config.Env) Model {
 	return Model{
-		accent: lipgloss.NewStyle().Foreground(accentFor(theme)).Bold(true),
+		accent: lipgloss.NewStyle().Foreground(accentFor(theme, env)).Bold(true),
 		green:  lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")),
 		dim:    lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")),
 	}
@@ -165,7 +167,15 @@ func tick() tea.Cmd {
 	})
 }
 
-func accentFor(theme config.Theme) color.Color {
+func accentFor(theme config.Theme, env config.Env) color.Color {
+	// Env override takes precedence so the splash warns about
+	// non-local environments at a glance.
+	switch env {
+	case config.EnvStaging:
+		return lipgloss.Color("#FAB387") // orange
+	case config.EnvProd:
+		return lipgloss.Color("#F38BA8") // red
+	}
 	switch theme {
 	case config.ThemeDracula:
 		return lipgloss.Color("#BD93F9")

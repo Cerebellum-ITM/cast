@@ -126,7 +126,7 @@ needs to display the current build.
   Makefile tag grammar.
 
 Edit `version.Current` in the same commit that introduces the change — never
-in a separate bookkeeping commit. Current: `0.4.0`.
+in a separate bookkeeping commit. Current: `0.4.1`.
 
 ---
 
