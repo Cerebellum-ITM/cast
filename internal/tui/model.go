@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -58,6 +59,12 @@ type RunDoneMsg struct {
 // HistoryLoadedMsg carries runs loaded from the database on startup.
 type HistoryLoadedMsg struct{ Runs []db.Run }
 
+// EnvHistoryLoadedMsg carries env change records loaded from the database.
+type EnvHistoryLoadedMsg struct{ Changes []db.EnvChange }
+
+// EnvChangedMsg is dispatched after a successful env var write.
+type EnvChangedMsg struct{ Key string }
+
 // HistoryErrorMsg reports a non-fatal DB error (load or insert).
 type HistoryErrorMsg struct{ Err error }
 
@@ -94,8 +101,19 @@ type Model struct {
 
 	// .env tab state
 	envFile        *source.EnvFile
+	envFilePath    string
 	selectedEnvKey int
 	showSecrets    bool
+	envEditMode    bool
+	envEditBuffer  string
+	envSearchInput textinput.Model
+	envFocus       int // 0=sidebar, 1=history panel
+	envHistoryItems []db.EnvChange
+	envHistorySel   int
+	envNewMode      bool   // true when adding a new variable
+	envNewKeyMode   bool   // true during key-name entry step
+	envNewKeyBuffer string // key name typed so far
+	envNewSensitive bool   // sensitive toggle during new-var flow
 
 	// Navigation
 	selected  int
@@ -141,6 +159,10 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 	si.Placeholder = "search commands…"
 	si.CharLimit = 64
 
+	esi := textinput.New()
+	esi.Placeholder = "filter vars…"
+	esi.CharLimit = 64
+
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
 	sp.Style = accentStyle(cfg.Theme, cfg.Env)
 
@@ -149,28 +171,45 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		progress.WithoutPercentage(),
 	)
 
+	var envFile *source.EnvFile
+	if cfg.EnvFilePath != "" {
+		if ef, err := source.ParseEnvFile(cfg.EnvFilePath); err == nil {
+			envFile = ef
+		}
+	}
+
 	return Model{
-		state:         StateSplash,
-		keys:          DefaultKeyMap,
-		splashModel:   splash.New(cfg.Theme),
-		commands:      commands,
-		filtered:      commands,
-		historyMax:    cfg.HistoryMax,
-		db:            database,
-		env:           cfg.Env,
-		theme:         cfg.Theme,
-		searchInput:   si,
-		spinner:       sp,
-		progressBar:   pb,
-		makefileLines: loadFileLines(cfg.SourcePath),
-		makefilePath:  cfg.SourcePath,
+		state:          StateSplash,
+		keys:           DefaultKeyMap,
+		splashModel:    splash.New(cfg.Theme),
+		commands:       commands,
+		filtered:       commands,
+		historyMax:     cfg.HistoryMax,
+		db:             database,
+		env:            cfg.Env,
+		theme:          cfg.Theme,
+		searchInput:    si,
+		envSearchInput: esi,
+		spinner:        sp,
+		progressBar:    pb,
+		makefileLines:  loadFileLines(cfg.SourcePath),
+		makefilePath:   cfg.SourcePath,
+		envFile:        envFile,
+		envFilePath:    cfg.EnvFilePath,
 	}
 }
 
+// NewOnTab creates a Model that starts with the given tab active.
+func NewOnTab(cfg *config.Config, commands []source.Command, database *db.DB, tab Tab) Model {
+	m := New(cfg, commands, database)
+	m.activeTab = tab
+	return m
+}
+
 // Init satisfies tea.Model. The splash model drives its own tick loop,
-// and we kick off a DB read so the history tab is populated on first paint.
+// and we kick off DB reads so history tabs are populated on first paint.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.splashModel.Init(), m.loadHistoryCmd())
+	return tea.Batch(m.splashModel.Init(), m.loadHistoryCmd(), m.loadEnvHistoryCmd())
 }
 
 func (m Model) loadHistoryCmd() tea.Cmd {
@@ -190,6 +229,50 @@ func (m Model) loadHistoryCmd() tea.Cmd {
 			return HistoryErrorMsg{Err: fmt.Errorf("load history: %w", err)}
 		}
 		return HistoryLoadedMsg{Runs: runs}
+	}
+}
+
+func (m Model) loadEnvHistoryCmd() tea.Cmd {
+	if m.db == nil {
+		return nil
+	}
+	database := m.db
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		changes, err := database.RecentEnvChanges(ctx, 100)
+		if err != nil {
+			return HistoryErrorMsg{Err: fmt.Errorf("load env history: %w", err)}
+		}
+		return EnvHistoryLoadedMsg{Changes: changes}
+	}
+}
+
+func (m Model) saveEnvVarCmd(key, oldVal, newVal string, sensitive bool) tea.Cmd {
+	database := m.db
+	envFile := m.envFile
+	envFilePath := m.envFilePath
+	return func() tea.Msg {
+		if envFile != nil && envFilePath != "" {
+			if err := source.WriteEnvFile(envFile, envFilePath); err != nil {
+				return HistoryErrorMsg{Err: fmt.Errorf("write env file: %w", err)}
+			}
+		}
+		if database != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			old := sql.NullString{String: oldVal, Valid: oldVal != ""}
+			_, _ = database.InsertEnvChange(ctx, db.EnvChange{
+				Key:       key,
+				OldValue:  old,
+				NewValue:  newVal,
+				Sensitive: sensitive,
+				EnvFile:   envFilePath,
+				ChangedAt: time.Now(),
+				ChangedBy: "user",
+			})
+		}
+		return EnvChangedMsg{Key: key}
 	}
 }
 
@@ -258,6 +341,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = msg.Runs
 		return m, nil
 
+	case EnvHistoryLoadedMsg:
+		m.envHistoryItems = msg.Changes
+		return m, nil
+
+	case EnvChangedMsg:
+		if m.envFilePath != "" {
+			if ef, err := source.ParseEnvFile(m.envFilePath); err == nil {
+				m.envFile = ef
+			}
+		}
+		return m, m.loadEnvHistoryCmd()
+
 	case HistoryErrorMsg:
 		// Non-fatal; leave history empty and move on.
 		return m, nil
@@ -313,6 +408,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.showMakefileExpand {
 		return m.handleMakefileExpand(msg)
+	}
+	if m.activeTab == TabEnv {
+		return m.handleEnvKey(msg)
 	}
 	if m.searchInput.Focused() {
 		return m.handleSearchKey(msg)
@@ -529,6 +627,312 @@ func (m Model) makefileExpandVisH() int {
 		visH = 1
 	}
 	return visH
+}
+
+func (m Model) handleEnvKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := msg.String()
+
+	// New-variable flow: step 1 — typing the key name.
+	if m.envNewKeyMode {
+		switch k {
+		case "esc":
+			m.envNewMode = false
+			m.envNewKeyMode = false
+			m.envNewKeyBuffer = ""
+			m.envNewSensitive = false
+		case "enter":
+			if m.envNewKeyBuffer != "" {
+				// Auto-detect sensitive from key name, but respect manual toggle.
+				if !m.envNewSensitive {
+					m.envNewSensitive = source.IsSensitiveKey(m.envNewKeyBuffer)
+				}
+				return m.commitNewKey()
+			}
+		case "ctrl+s":
+			m.envNewSensitive = !m.envNewSensitive
+		case "backspace":
+			runes := []rune(m.envNewKeyBuffer)
+			if len(runes) > 0 {
+				m.envNewKeyBuffer = string(runes[:len(runes)-1])
+			}
+		default:
+			if len(k) == 1 {
+				m.envNewKeyBuffer += k
+			}
+		}
+		return m, nil
+	}
+
+	// Edit mode captures all printable input.
+	if m.envEditMode {
+		switch k {
+		case "esc":
+			m.envEditMode = false
+			m.envEditBuffer = ""
+			if m.envNewMode {
+				// Cancel the whole new-var flow: remove the placeholder.
+				m.envNewMode = false
+				m.envNewSensitive = false
+				if m.envFile != nil && len(m.envFile.Vars) > 0 {
+					m.envFile.Vars = m.envFile.Vars[:len(m.envFile.Vars)-1]
+				}
+				if m.selectedEnvKey >= len(m.envFile.Vars) && m.selectedEnvKey > 0 {
+					m.selectedEnvKey = len(m.envFile.Vars) - 1
+				}
+			}
+		case "enter":
+			return m.commitEnvEdit()
+		case "ctrl+s":
+			if m.envNewMode {
+				m.envNewSensitive = !m.envNewSensitive
+			}
+			// Always toggle the in-memory flag on the selected var.
+			m.toggleSelectedSensitive()
+		case "backspace":
+			runes := []rune(m.envEditBuffer)
+			if len(runes) > 0 {
+				m.envEditBuffer = string(runes[:len(runes)-1])
+			}
+		default:
+			if len(k) == 1 {
+				m.envEditBuffer += k
+			}
+		}
+		return m, nil
+	}
+
+	// Env search input captures all input when focused.
+	if m.envSearchInput.Focused() {
+		switch k {
+		case "esc":
+			m.envSearchInput.Blur()
+			m.envSearchInput.SetValue("")
+			m.selectedEnvKey = 0
+		case "enter":
+			m.envSearchInput.Blur()
+		default:
+			var cmd tea.Cmd
+			m.envSearchInput, cmd = m.envSearchInput.Update(msg)
+			m.selectedEnvKey = 0
+			return m, cmd
+		}
+		return m, nil
+	}
+
+	switch k {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "tab", m.keys.TabNext:
+		m.activeTab = (m.activeTab + 1) % 4
+	case m.keys.TabPrev:
+		m.activeTab = (m.activeTab + 3) % 4
+	case "left", "h":
+		m.envFocus = 0
+	case "right", "l":
+		m.envFocus = 1
+	case m.keys.Up, m.keys.UpVim:
+		m.envNavUp()
+	case m.keys.Down, m.keys.DownVim:
+		m.envNavDown()
+	case m.keys.Top:
+		m.envNavTop()
+	case m.keys.Bottom:
+		m.envNavBottom()
+	case m.keys.Search:
+		m.envSearchInput.Focus()
+		return m, textinput.Blink
+	case m.keys.ToggleSecrets:
+		m.showSecrets = !m.showSecrets
+	case "ctrl+s":
+		m.toggleSelectedSensitive()
+	case "ctrl+a":
+		return m.startNewVar()
+	case "enter":
+		if m.envFocus == 0 {
+			return m.startEnvEdit()
+		}
+	case m.keys.EnvRestore:
+		if m.envFocus == 1 {
+			return m.restoreEnvValue()
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) envNavUp() {
+	if m.envFocus == 0 {
+		if m.selectedEnvKey > 0 {
+			m.selectedEnvKey--
+		}
+	} else {
+		if m.envHistorySel > 0 {
+			m.envHistorySel--
+		}
+	}
+}
+
+func (m *Model) envNavDown() {
+	if m.envFocus == 0 {
+		vars := filterEnvVars(m.envFile, m.envSearchInput.Value())
+		if m.selectedEnvKey < len(vars)-1 {
+			m.selectedEnvKey++
+		}
+	} else {
+		if m.envHistorySel < len(m.envHistoryItems)-1 {
+			m.envHistorySel++
+		}
+	}
+}
+
+func (m *Model) envNavTop() {
+	if m.envFocus == 0 {
+		m.selectedEnvKey = 0
+	} else {
+		m.envHistorySel = 0
+	}
+}
+
+func (m *Model) envNavBottom() {
+	if m.envFocus == 0 {
+		vars := filterEnvVars(m.envFile, m.envSearchInput.Value())
+		if len(vars) > 0 {
+			m.selectedEnvKey = len(vars) - 1
+		}
+	} else {
+		if len(m.envHistoryItems) > 0 {
+			m.envHistorySel = len(m.envHistoryItems) - 1
+		}
+	}
+}
+
+func (m Model) startEnvEdit() (tea.Model, tea.Cmd) {
+	vars := filterEnvVars(m.envFile, m.envSearchInput.Value())
+	if len(vars) == 0 || m.selectedEnvKey >= len(vars) {
+		return m, nil
+	}
+	m.envEditMode = true
+	m.envEditBuffer = vars[m.selectedEnvKey].Value
+	return m, nil
+}
+
+// toggleSelectedSensitive flips the Sensitive flag on the currently selected var.
+// This is a pure in-memory change; .env files have no sensitive metadata column.
+func (m *Model) toggleSelectedSensitive() {
+	if m.envFile == nil {
+		return
+	}
+	vars := filterEnvVars(m.envFile, m.envSearchInput.Value())
+	if len(vars) == 0 || m.selectedEnvKey >= len(vars) {
+		return
+	}
+	targetKey := vars[m.selectedEnvKey].Key
+	for i, v := range m.envFile.Vars {
+		if v.Key == targetKey {
+			m.envFile.Vars[i].Sensitive = !m.envFile.Vars[i].Sensitive
+			return
+		}
+	}
+}
+
+func (m Model) startNewVar() (tea.Model, tea.Cmd) {
+	m.envFocus = 0
+	m.envNewMode = true
+	m.envNewKeyMode = true
+	m.envNewKeyBuffer = ""
+	m.envNewSensitive = false
+	m.envSearchInput.Blur()
+	m.envSearchInput.SetValue("")
+	return m, nil
+}
+
+func (m Model) commitNewKey() (tea.Model, tea.Cmd) {
+	key := strings.TrimSpace(m.envNewKeyBuffer)
+	if key == "" {
+		m.envNewMode = false
+		m.envNewKeyMode = false
+		m.envNewKeyBuffer = ""
+		m.envNewSensitive = false
+		return m, nil
+	}
+	if m.envFile == nil {
+		m.envFile = &source.EnvFile{Filename: m.envFilePath}
+	}
+	m.envFile.Vars = append(m.envFile.Vars, source.EnvVar{
+		Key:       key,
+		Sensitive: m.envNewSensitive,
+	})
+	m.selectedEnvKey = len(m.envFile.Vars) - 1
+	m.envNewKeyMode = false
+	m.envEditMode = true
+	m.envEditBuffer = ""
+	return m, nil
+}
+
+func (m Model) commitEnvEdit() (tea.Model, tea.Cmd) {
+	vars := filterEnvVars(m.envFile, m.envSearchInput.Value())
+	if m.envFile == nil || len(vars) == 0 || m.selectedEnvKey >= len(vars) {
+		m.envEditMode = false
+		m.envNewMode = false
+		return m, nil
+	}
+	selectedVar := vars[m.selectedEnvKey]
+	newValue := m.envEditBuffer
+
+	isNew := m.envNewMode
+	var oldValue string
+	if !isNew {
+		oldValue = selectedVar.Value
+	}
+
+	// Update in the full envFile.Vars.
+	for i, v := range m.envFile.Vars {
+		if v.Key == selectedVar.Key {
+			m.envFile.Vars[i].Value = newValue
+			break
+		}
+	}
+	m.envEditMode = false
+	m.envEditBuffer = ""
+	m.envNewMode = false
+	m.envNewKeyBuffer = ""
+	return m, m.saveEnvVarCmd(selectedVar.Key, oldValue, newValue, selectedVar.Sensitive)
+}
+
+func (m Model) restoreEnvValue() (tea.Model, tea.Cmd) {
+	if len(m.envHistoryItems) == 0 || m.envHistorySel >= len(m.envHistoryItems) {
+		return m, nil
+	}
+	change := m.envHistoryItems[m.envHistorySel]
+	if !change.OldValue.Valid {
+		return m, nil
+	}
+	if m.envFile == nil {
+		return m, nil
+	}
+	for i, v := range m.envFile.Vars {
+		if v.Key == change.Key {
+			oldCurrent := m.envFile.Vars[i].Value
+			m.envFile.Vars[i].Value = change.OldValue.String
+			return m, m.saveEnvVarCmd(change.Key, oldCurrent, change.OldValue.String, v.Sensitive)
+		}
+	}
+	return m, nil
+}
+
+func filterEnvVars(ef *source.EnvFile, query string) []source.EnvVar {
+	if ef == nil {
+		return nil
+	}
+	if query == "" {
+		return ef.Vars
+	}
+	var out []source.EnvVar
+	for _, v := range ef.Vars {
+		if containsFold(v.Key, query) || containsFold(v.Comment, query) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func commandMakefileSection(lines []string, name string) []string {

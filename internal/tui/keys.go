@@ -19,24 +19,26 @@ type KeyMap struct {
 	ToggleSecrets  string
 	ExpandOutput   string
 	ExpandMakefile string
+	EnvRestore     string // restore selected history entry (env tab only)
 }
 
 // DefaultKeyMap is the out-of-the-box key configuration.
 var DefaultKeyMap = KeyMap{
-	Quit:          "q",
-	TabNext:       "tab",
-	TabPrev:       "shift+tab",
-	Up:            "up",
-	Down:          "down",
-	UpVim:         "k",
-	DownVim:       "j",
-	Top:           "g",
-	Bottom:        "G",
-	Search:        "/",
-	Run:           "enter",
-	RunAlt:        "r",
-	RerunLast:     "ctrl+r",
+	Quit:           "q",
+	TabNext:        "tab",
+	TabPrev:        "shift+tab",
+	Up:             "up",
+	Down:           "down",
+	UpVim:          "k",
+	DownVim:        "j",
+	Top:            "g",
+	Bottom:         "G",
+	Search:         "/",
+	Run:            "enter",
+	RunAlt:         "r",
+	RerunLast:      "ctrl+r",
 	ToggleSecrets:  "s",
 	ExpandOutput:   "ctrl+e",
 	ExpandMakefile: "ctrl+o",
+	EnvRestore:     "r",
 }

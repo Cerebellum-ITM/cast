@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -17,9 +21,13 @@ import (
 const usage = `cast — a beautiful task runner
 
 Usage:
-  cast [flags]          launch the TUI
-  cast init             create .cast.toml template in the current directory
-  cast config           show active config file paths
+  cast [flags]              launch the TUI
+  cast init                 create .cast.toml template in the current directory
+  cast config               show active config file paths
+  cast env                  open the TUI on the .env tab
+  cast env set KEY=VALUE    set a variable (persisted to .env + db)
+  cast env get KEY          print a variable's value
+  cast env list             list all variables
 
 Flags:
   -env   string   environment override: local | staging | prod
@@ -36,6 +44,9 @@ func main() {
 			return
 		case "config":
 			runConfig()
+			return
+		case "env":
+			runEnvCommand(os.Args[2:])
 			return
 		case "-h", "--help", "help":
 			fmt.Print(usage)
@@ -163,4 +174,188 @@ func runConfig() {
 	fmt.Printf("  source     %s (%s)\n", cfg.SourcePath, cfg.SourceType)
 	fmt.Printf("  history    max=%d\n", cfg.HistoryMax)
 	fmt.Printf("  db         %s  (%s)\n", shortPath(cfg.DBPath), fileStatus(cfg.DBPath))
+}
+
+// runEnvCommand dispatches cast env subcommands.
+func runEnvCommand(args []string) {
+	if len(args) == 0 {
+		// Open TUI on the .env tab.
+		cfg, err := config.Load("", "")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cast env: config: %v\n", err)
+			os.Exit(1)
+		}
+		src := &source.MakefileSource{Path: cfg.SourcePath}
+		commands, _ := src.Load()
+		database, err := db.Open(cfg.DBPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cast env: db: %v\n", err)
+			os.Exit(1)
+		}
+		defer database.Close()
+		m := tui.NewOnTab(cfg, commands, database, tui.TabEnv)
+		p := tea.NewProgram(m)
+		if _, err := p.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "cast: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	switch args[0] {
+	case "set":
+		runEnvSet(args[1:])
+	case "get":
+		runEnvGet(args[1:])
+	case "list":
+		runEnvList(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "cast env: unknown subcommand %q\n", args[0])
+		fmt.Fprintln(os.Stderr, "usage: cast env [set KEY=VALUE | get KEY | list]")
+		os.Exit(1)
+	}
+}
+
+func runEnvSet(args []string) {
+	fs := flag.NewFlagSet("env set", flag.ExitOnError)
+	sensitive := fs.Bool("sensitive", false, "mark variable as sensitive")
+	_ = fs.Parse(args)
+
+	if fs.NArg() == 0 {
+		fmt.Fprintln(os.Stderr, "usage: cast env set KEY=VALUE [--sensitive]")
+		os.Exit(1)
+	}
+
+	pair := fs.Arg(0)
+	idx := strings.Index(pair, "=")
+	if idx < 1 {
+		fmt.Fprintf(os.Stderr, "cast env set: invalid format %q — expected KEY=VALUE\n", pair)
+		os.Exit(1)
+	}
+	key := pair[:idx]
+	value := pair[idx+1:]
+
+	cfg, err := config.Load("", "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast env set: config: %v\n", err)
+		os.Exit(1)
+	}
+
+	ef, err := source.ParseEnvFile(cfg.EnvFilePath)
+	if os.IsNotExist(err) {
+		ef = &source.EnvFile{Filename: cfg.EnvFilePath}
+	} else if err != nil {
+		fmt.Fprintf(os.Stderr, "cast env set: read %s: %v\n", cfg.EnvFilePath, err)
+		os.Exit(1)
+	}
+
+	isSens := *sensitive || source.IsSensitiveKey(key)
+	var oldValue sql.NullString
+	found := false
+	for i, v := range ef.Vars {
+		if v.Key == key {
+			oldValue = sql.NullString{String: v.Value, Valid: true}
+			ef.Vars[i].Value = value
+			if isSens {
+				ef.Vars[i].Sensitive = true
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		ef.Vars = append(ef.Vars, source.EnvVar{
+			Key:       key,
+			Value:     value,
+			Sensitive: isSens,
+		})
+	}
+
+	if err := source.WriteEnvFile(ef, cfg.EnvFilePath); err != nil {
+		fmt.Fprintf(os.Stderr, "cast env set: write: %v\n", err)
+		os.Exit(1)
+	}
+
+	database, err := db.Open(cfg.DBPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast env set: db: %v\n", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, _ = database.InsertEnvChange(ctx, db.EnvChange{
+		Key:       key,
+		OldValue:  oldValue,
+		NewValue:  value,
+		Sensitive: isSens,
+		EnvFile:   cfg.EnvFilePath,
+		ChangedAt: time.Now(),
+		ChangedBy: "cli",
+	})
+
+	fmt.Printf("set %s in %s\n", key, cfg.EnvFilePath)
+}
+
+func runEnvGet(args []string) {
+	fs := flag.NewFlagSet("env get", flag.ExitOnError)
+	reveal := fs.Bool("reveal", false, "show value even if sensitive")
+	_ = fs.Parse(args)
+
+	if fs.NArg() == 0 {
+		fmt.Fprintln(os.Stderr, "usage: cast env get KEY [--reveal]")
+		os.Exit(1)
+	}
+	key := fs.Arg(0)
+
+	cfg, err := config.Load("", "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast env get: config: %v\n", err)
+		os.Exit(1)
+	}
+
+	ef, err := source.ParseEnvFile(cfg.EnvFilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast env get: read %s: %v\n", cfg.EnvFilePath, err)
+		os.Exit(1)
+	}
+
+	for _, v := range ef.Vars {
+		if v.Key == key {
+			if v.Sensitive && !*reveal {
+				fmt.Printf("%s=••••••••\n", key)
+			} else {
+				fmt.Printf("%s=%s\n", key, v.Value)
+			}
+			return
+		}
+	}
+	fmt.Fprintf(os.Stderr, "cast env get: key %q not found in %s\n", key, cfg.EnvFilePath)
+	os.Exit(1)
+}
+
+func runEnvList(args []string) {
+	fs := flag.NewFlagSet("env list", flag.ExitOnError)
+	reveal := fs.Bool("reveal", false, "show sensitive values")
+	_ = fs.Parse(args)
+
+	cfg, err := config.Load("", "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast env list: config: %v\n", err)
+		os.Exit(1)
+	}
+
+	ef, err := source.ParseEnvFile(cfg.EnvFilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast env list: read %s: %v\n", cfg.EnvFilePath, err)
+		os.Exit(1)
+	}
+
+	for _, v := range ef.Vars {
+		val := v.Value
+		if v.Sensitive && !*reveal {
+			val = "••••••••"
+		}
+		fmt.Printf("%s=%s\n", v.Key, val)
+	}
 }

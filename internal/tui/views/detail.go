@@ -175,14 +175,6 @@ func History(p Palette, records []db.Run, w, h int) string {
 	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).Render(content)
 }
 
-// EnvPane renders the center panel when the .env tab is active.
-func EnvPane(p Palette, w, h int) string {
-	title := Style(p.Accent, true).Render(".env")
-	note := Style(p.FgDim, false).Render("env file viewer — coming soon")
-	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgDeep).
-		Padding(1, 2).Render(title + "\n" + note)
-}
-
 func capitalize(s string) string {
 	if s == "" {
 		return s

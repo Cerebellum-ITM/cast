@@ -141,6 +141,40 @@ func ColorOutputLine(p Palette, line string) string {
 	}
 }
 
+// HighlightEnvLine applies syntax color to a single .env file line.
+func HighlightEnvLine(p Palette, line string) string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return line
+	}
+	if strings.HasPrefix(trimmed, "#") {
+		return Style(p.FgDim, false).Render(line)
+	}
+	idx := strings.Index(trimmed, "=")
+	if idx < 1 {
+		return Style(p.FgDim, false).Render(line)
+	}
+	key := trimmed[:idx]
+	val := trimmed[idx+1:]
+	isNumeric := val != "" && func() bool {
+		for _, r := range val {
+			if (r < '0' || r > '9') && r != '.' && r != '-' {
+				return false
+			}
+		}
+		return true
+	}()
+	var valStr string
+	if isNumeric {
+		valStr = Style(p.Yellow, false).Render(val)
+	} else {
+		valStr = Style(p.Green, false).Render(val)
+	}
+	return Style(p.Cyan, false).Render(key) +
+		Style(p.FgDim, false).Render("=") +
+		valStr
+}
+
 // HighlightMakefileLine applies syntax highlighting to a single Makefile line.
 func HighlightMakefileLine(p Palette, line string) string {
 	trimmed := strings.TrimSpace(line)

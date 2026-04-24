@@ -156,6 +156,10 @@ func (m Model) renderEnvPill(p views.Palette) string {
 // ── Body ──────────────────────────────────────────────────────────────────────
 
 func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
+	if m.activeTab == TabEnv {
+		return m.renderEnvBody(p, bodyH, centerW)
+	}
+
 	sbInner := sidebarW - 1
 	outInner := outputW - 1
 
@@ -189,12 +193,99 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, divCol, center, divCol, output)
 }
 
+// envSidebarW is the wider sidebar used by the .env tab (includes right divider).
+const envSidebarW = 37
+
+func (m Model) renderEnvBody(p views.Palette, bodyH, totalW int) string {
+	// Recompute center width using the wider env sidebar.
+	envCenterW := totalW + (sidebarW - envSidebarW)
+	if envCenterW < 10 {
+		envCenterW = 10
+	}
+	sbInner := envSidebarW - 1
+	outInner := outputW - 1
+
+	vars := filterEnvVars(m.envFile, m.envSearchInput.Value())
+
+	sidebar := views.EnvSidebar(p, views.EnvSidebarProps{
+		Vars:          vars,
+		Selected:      m.selectedEnvKey,
+		Search:        m.envSearchInput.Value(),
+		SearchFocused: m.envSearchInput.Focused(),
+		ShowSecrets:   m.showSecrets,
+		Focused:       m.envFocus == 0,
+		Width:         sbInner,
+		Height:        bodyH,
+	})
+
+	center := m.renderEnvCenter(p, envCenterW, bodyH, vars)
+
+	history := views.EnvHistoryPanel(p, views.EnvHistoryProps{
+		Changes:     m.envHistoryItems,
+		Selected:    m.envHistorySel,
+		ShowSecrets: m.showSecrets,
+		Focused:     m.envFocus == 1,
+		Width:       outInner,
+		Height:      bodyH,
+	})
+
+	divStyle := views.Style(p.Border, false)
+	divCol := divStyle.Render(strings.Repeat("│\n", bodyH-1) + "│")
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, divCol, center, divCol, history)
+}
+
+func (m Model) renderEnvCenter(p views.Palette, w, h int, vars []source.EnvVar) string {
+	detailH := h * 2 / 5
+	if detailH < 4 {
+		detailH = 4
+	}
+	previewH := h - detailH - 1
+	if previewH < 2 {
+		previewH = 2
+	}
+
+	var selectedVar *source.EnvVar
+	if len(vars) > 0 && m.selectedEnvKey < len(vars) {
+		v := vars[m.selectedEnvKey]
+		selectedVar = &v
+	}
+
+	detail := views.EnvDetail(p, views.EnvDetailProps{
+		Var:          selectedVar,
+		ShowSecrets:  m.showSecrets,
+		EditMode:     m.envEditMode,
+		EditBuffer:   m.envEditBuffer,
+		NewMode:      m.envNewMode,
+		NewKeyMode:   m.envNewKeyMode,
+		NewKeyBuffer: m.envNewKeyBuffer,
+		NewSensitive: m.envNewSensitive,
+		Width:        w,
+		Height:       detailH,
+	})
+
+	sep := views.SepLine(p, w)
+
+	var rawLines []string
+	var filename string
+	if m.envFile != nil {
+		rawLines = m.envFile.RawLines
+		filename = m.envFile.Filename
+	}
+	preview := views.EnvFilePreview(p, views.EnvFilePreviewProps{
+		Lines:    rawLines,
+		Filename: filename,
+		Width:    w,
+		Height:   previewH,
+	})
+
+	return detail + "\n" + sep + "\n" + preview
+}
+
 func (m Model) renderCenter(p views.Palette, w, h int) string {
 	switch m.activeTab {
 	case TabHistory:
 		return views.History(p, m.history, w, h)
-	case TabEnv:
-		return views.EnvPane(p, w, h)
 	default:
 		var cmd *source.Command
 		if len(m.filtered) > 0 {
