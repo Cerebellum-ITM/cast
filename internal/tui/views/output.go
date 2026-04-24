@@ -7,13 +7,13 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Cerebellum-ITM/cast/internal/runner"
+	"github.com/Cerebellum-ITM/cast/internal/db"
 )
 
 // OutputProps holds all data needed to render the right output panel.
 type OutputProps struct {
 	Lines       []string
-	History     []runner.RunRecord
+	History     []db.Run
 	Running     bool
 	HasLastRun  bool
 	LastRunOK   bool
@@ -114,7 +114,7 @@ func renderTermRows(p Palette, output []string, w, h int) []string {
 	return rows
 }
 
-func renderRecentRows(p Palette, history []runner.RunRecord, w, max int) []string {
+func renderRecentRows(p Palette, history []db.Run, w, max int) []string {
 	label := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel).
 		Foreground(p.Fg).Bold(true).Render("RECENT")
 	sep := SepLine(p, w)
@@ -127,8 +127,8 @@ func renderRecentRows(p Palette, history []runner.RunRecord, w, max int) []strin
 		}
 		dot := StatusDot(p, r.Status)
 		name := Style(p.FgDim, false).Render(Truncate(r.Command, 10))
-		dur := Style(p.FgDim, false).Render(r.Duration)
-		ts := Style(p.FgDim, false).Render(r.Time)
+		dur := Style(p.FgDim, false).Render(r.DurationStr())
+		ts := Style(p.FgDim, false).Render(r.TimeStr())
 		rows = append(rows, lipgloss.NewStyle().Width(w).Padding(0, 1).
 			Background(p.BgPanel).Render(dot+" "+name+"  "+dur+"  "+ts))
 	}

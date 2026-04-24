@@ -14,6 +14,7 @@ import (
 type GlobalFile struct {
 	Theme   GlobalTheme   `toml:"theme"`
 	History GlobalHistory `toml:"history"`
+	DB      GlobalDB      `toml:"db"`
 
 	// WIP: Keybindings   GlobalKeybindings   `toml:"keybindings"`
 	// WIP: Notifications GlobalNotifications `toml:"notifications"`
@@ -26,9 +27,13 @@ type GlobalTheme struct {
 	Env     map[string]string `toml:"env"`
 }
 
-// GlobalHistory controls command-run history persistence.
+// GlobalHistory controls command-run history retention.
 type GlobalHistory struct {
-	Max  int    `toml:"max"`
+	Max int `toml:"max"`
+}
+
+// GlobalDB configures the SQLite database location.
+type GlobalDB struct {
 	Path string `toml:"path"`
 }
 
@@ -198,8 +203,10 @@ staging = "catppuccin"
 prod    = "catppuccin"
 
 [history]
-max  = 100
-path = ""   # empty = ~/.config/cast/history.json
+max = 100   # max run-history rows retained in the SQLite db
+
+[db]
+path = ""   # empty = ~/.config/cast/cast.db
 
 # ── WIP ──────────────────────────────────────────────────────────────────────
 # Uncomment and fill these sections when the features are ready.

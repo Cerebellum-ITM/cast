@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/Cerebellum-ITM/cast/internal/runner"
+	"github.com/Cerebellum-ITM/cast/internal/db"
 )
 
 // Palette holds all resolved color tokens for a theme + environment combination.
@@ -110,13 +110,13 @@ func RenderProgressBar(p Palette, w int, progress float64, fillColor color.Color
 }
 
 // StatusDot returns a colored ● indicator for a run status.
-func StatusDot(p Palette, status runner.RunStatus) string {
+func StatusDot(p Palette, status db.RunStatus) string {
 	switch status {
-	case runner.StatusSuccess:
+	case db.StatusSuccess:
 		return Style(p.Green, false).Render("●")
-	case runner.StatusError:
+	case db.StatusError:
 		return Style(p.Red, false).Render("●")
-	case runner.StatusRunning:
+	case db.StatusRunning:
 		return Style(p.Yellow, false).Render("●")
 	default:
 		return Style(p.FgDim, false).Render("●")

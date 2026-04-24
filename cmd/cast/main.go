@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/Cerebellum-ITM/cast/internal/config"
+	"github.com/Cerebellum-ITM/cast/internal/db"
 	"github.com/Cerebellum-ITM/cast/internal/source"
 	"github.com/Cerebellum-ITM/cast/internal/tui"
 )
@@ -74,7 +75,14 @@ func main() {
 		}
 	}
 
-	m := tui.New(cfg, commands)
+	database, err := db.Open(cfg.DBPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cast: db: %v\n", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	m := tui.New(cfg, commands, database)
 	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "cast: %v\n", err)
@@ -153,5 +161,6 @@ func runConfig() {
 	fmt.Printf("  theme      %s\n", cfg.Theme)
 	fmt.Printf("  env-file   %s\n", cfg.EnvFilePath)
 	fmt.Printf("  source     %s (%s)\n", cfg.SourcePath, cfg.SourceType)
-	fmt.Printf("  history    max=%d  path=%s\n", cfg.HistoryMax, shortPath(cfg.HistoryPath))
+	fmt.Printf("  history    max=%d\n", cfg.HistoryMax)
+	fmt.Printf("  db         %s  (%s)\n", shortPath(cfg.DBPath), fileStatus(cfg.DBPath))
 }

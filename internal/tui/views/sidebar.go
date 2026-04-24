@@ -145,7 +145,7 @@ func renderCommandCard(p Palette, cmd source.Command, selected bool, w int) (str
 }
 
 func renderHintsRow(p Palette, w int) string {
-	hints := [][2]string{{"↑↓", "nav"}, {"⏎", "run"}, {"/", "search"}, {"q", "quit"}}
+	hints := [][2]string{{"↑↓", "nav"}, {"⏎", "run"}, {"/", "search"}, {"ctrl+o", "source"}, {"q", "quit"}}
 	avail := w - 2
 	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel)
 

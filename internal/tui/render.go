@@ -58,6 +58,23 @@ func (m Model) renderMain() string {
 		return views.OverlayCenter(full, box)
 	}
 
+	if m.showMakefileExpand {
+		popupW := m.width - 8
+		if popupW < 40 {
+			popupW = 40
+		}
+		popupH := m.height - 4
+		if popupH < 10 {
+			popupH = 10
+		}
+		var cmdName string
+		if len(m.filtered) > 0 {
+			cmdName = m.filtered[m.selected].Name
+		}
+		box := views.ExpandedMakefile(p, m.makefileExpandLines, m.makefileExpandOff, popupW, popupH, cmdName)
+		return views.OverlayCenter(full, box)
+	}
+
 	return full
 }
 

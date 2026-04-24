@@ -56,8 +56,8 @@ type Config struct {
 	SourcePath  string
 	EnvFilePath string // path to the .env file for this project
 
-	HistoryMax  int
-	HistoryPath string
+	HistoryMax int
+	DBPath     string
 
 	ConfirmTargets []string // command names that always require confirmation
 }
@@ -72,7 +72,7 @@ func Default() *Config {
 		SourcePath:  "./Makefile",
 		EnvFilePath: ".env",
 		HistoryMax:  100,
-		HistoryPath: filepath.Join(home, ".config", "cast", "history.json"),
+		DBPath:      filepath.Join(home, ".config", "cast", "cast.db"),
 	}
 }
 
@@ -97,8 +97,8 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 	if global.History.Max > 0 {
 		cfg.HistoryMax = global.History.Max
 	}
-	if global.History.Path != "" {
-		cfg.HistoryPath = global.History.Path
+	if global.DB.Path != "" {
+		cfg.DBPath = global.DB.Path
 	}
 
 	// ── Layer 3: local file ───────────────────────────────────────────────

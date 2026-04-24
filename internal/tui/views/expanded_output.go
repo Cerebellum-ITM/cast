@@ -80,3 +80,69 @@ func ExpandedOutput(p Palette, lines []string, offset, popupW, popupH int, cmd s
 		Padding(0, 1).
 		Render(inner)
 }
+
+// ExpandedMakefile renders a scrollable popup showing the selected command's Makefile section.
+func ExpandedMakefile(p Palette, lines []string, offset, popupW, popupH int, cmdName string) string {
+	innerW := popupW - 4
+	if innerW < 20 {
+		innerW = 20
+	}
+	visH := popupH - 6
+	if visH < 1 {
+		visH = 1
+	}
+
+	total := len(lines)
+	end := offset + visH
+	if end > total {
+		end = total
+	}
+
+	titleText := Style(p.Fg, true).Render("MAKEFILE")
+	if cmdName != "" {
+		titleText += Style(p.FgDim, false).Render("  —  ") + Style(p.Accent, true).Render(cmdName)
+	}
+	var scrollText string
+	if total > 0 {
+		scrollText = Style(p.FgMuted, false).Render(fmt.Sprintf("%d–%d / %d", offset+1, end, total))
+	} else {
+		scrollText = Style(p.FgMuted, false).Render("empty")
+	}
+	gap := innerW - VisWidth(titleText) - VisWidth(scrollText)
+	if gap < 1 {
+		gap = 1
+	}
+	titleRow := lipgloss.NewStyle().Width(innerW).Background(p.BgPanel).
+		Render(titleText + strings.Repeat(" ", gap) + scrollText)
+
+	sep := SepLine(p, innerW)
+
+	rows := make([]string, visH)
+	emptyRow := lipgloss.NewStyle().Width(innerW).Background(p.BgDeep).Render("")
+	for i := range rows {
+		rows[i] = emptyRow
+	}
+	for i := 0; i < visH && offset+i < total; i++ {
+		rawLine := lines[offset+i]
+		lineNum := lipgloss.NewStyle().Foreground(p.FgMuted).Width(3).
+			Render(fmt.Sprintf("%3d", offset+i+1))
+		content := "  " + lineNum + "  " + HighlightMakefileLine(p, rawLine)
+		line := ansi.Truncate(content, innerW, "")
+		rows[i] = lipgloss.NewStyle().Width(innerW).Background(p.BgDeep).Render(line)
+	}
+
+	hintText := "↑↓ / j k    pgup pgdn    g G top/end    ctrl+o  esc  close"
+	hintText = ansi.Truncate(hintText, innerW, "")
+	hintRow := lipgloss.NewStyle().Width(innerW).Background(p.BgPanel).
+		Render(Style(p.FgMuted, false).Render(hintText))
+
+	inner := titleRow + "\n" + sep + "\n" +
+		strings.Join(rows, "\n") + "\n" +
+		sep + "\n" + hintRow
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(p.Accent).
+		Padding(0, 1).
+		Render(inner)
+}

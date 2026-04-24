@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/Cerebellum-ITM/cast/internal/runner"
+	"github.com/Cerebellum-ITM/cast/internal/db"
 	"github.com/Cerebellum-ITM/cast/internal/source"
 )
 
@@ -151,7 +151,7 @@ func renderMakefilePreview(p Palette, props CommandsProps, h int) string {
 }
 
 // History renders the center panel when the history tab is active.
-func History(p Palette, records []runner.RunRecord, w, h int) string {
+func History(p Palette, records []db.Run, w, h int) string {
 	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
 		Background(p.BgPanel).Foreground(p.Fg).Bold(true).
 		Render("HISTORY")
@@ -161,8 +161,8 @@ func History(p Palette, records []runner.RunRecord, w, h int) string {
 	for _, r := range records {
 		dot := StatusDot(p, r.Status)
 		row := dot + " " + Style(p.Fg, true).Render(r.Command) +
-			"  " + Style(p.FgDim, false).Render(r.Duration) +
-			"  " + Style(p.FgMuted, false).Render(r.Time)
+			"  " + Style(p.FgDim, false).Render(r.DurationStr()) +
+			"  " + Style(p.FgMuted, false).Render(r.TimeStr())
 		entries = append(entries, lipgloss.NewStyle().Width(w).Padding(0, 2).
 			Background(p.BgPanel).Render(row))
 	}

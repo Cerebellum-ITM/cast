@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
@@ -11,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/Cerebellum-ITM/cast/internal/config"
+	"github.com/Cerebellum-ITM/cast/internal/db"
 	"github.com/Cerebellum-ITM/cast/internal/runner"
 	"github.com/Cerebellum-ITM/cast/internal/source"
 	"github.com/Cerebellum-ITM/cast/internal/tui/splash"
@@ -47,9 +51,15 @@ type RunOutputMsg struct{ Line string }
 
 // RunDoneMsg signals execution completion.
 type RunDoneMsg struct {
-	Status runner.RunStatus
-	Record runner.RunRecord
+	Status db.RunStatus
+	Run    db.Run
 }
+
+// HistoryLoadedMsg carries runs loaded from the database on startup.
+type HistoryLoadedMsg struct{ Runs []db.Run }
+
+// HistoryErrorMsg reports a non-fatal DB error (load or insert).
+type HistoryErrorMsg struct{ Err error }
 
 // tickMsg drives the progress bar animation.
 type tickMsg struct{}
@@ -66,9 +76,16 @@ type Model struct {
 	splashModel splash.Model
 
 	// Data
-	commands []source.Command
-	history  []runner.RunRecord
-	filtered []source.Command
+	commands   []source.Command
+	history    []db.Run
+	historyMax int
+	filtered   []source.Command
+
+	// Persistence
+	db *db.DB
+
+	// Execution timing
+	runStartedAt time.Time
 
 	// Makefile viewer
 	makefileLines  []string
@@ -101,6 +118,11 @@ type Model struct {
 	showOutputExpand bool
 	outputExpandOff  int
 
+	// Makefile section expand popup
+	showMakefileExpand  bool
+	makefileExpandOff   int
+	makefileExpandLines []string
+
 	// Layout
 	width  int
 	height int
@@ -114,7 +136,7 @@ type Model struct {
 }
 
 // New creates a fully initialized Model ready to be passed to tea.NewProgram.
-func New(cfg *config.Config, commands []source.Command) Model {
+func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 	si := textinput.New()
 	si.Placeholder = "search commands…"
 	si.CharLimit = 64
@@ -133,6 +155,8 @@ func New(cfg *config.Config, commands []source.Command) Model {
 		splashModel:   splash.New(cfg.Theme),
 		commands:      commands,
 		filtered:      commands,
+		historyMax:    cfg.HistoryMax,
+		db:            database,
 		env:           cfg.Env,
 		theme:         cfg.Theme,
 		searchInput:   si,
@@ -143,9 +167,30 @@ func New(cfg *config.Config, commands []source.Command) Model {
 	}
 }
 
-// Init satisfies tea.Model. The splash model drives its own tick loop.
+// Init satisfies tea.Model. The splash model drives its own tick loop,
+// and we kick off a DB read so the history tab is populated on first paint.
 func (m Model) Init() tea.Cmd {
-	return m.splashModel.Init()
+	return tea.Batch(m.splashModel.Init(), m.loadHistoryCmd())
+}
+
+func (m Model) loadHistoryCmd() tea.Cmd {
+	if m.db == nil {
+		return nil
+	}
+	limit := m.historyMax
+	if limit <= 0 {
+		limit = 100
+	}
+	database := m.db
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		runs, err := database.RecentRuns(ctx, limit)
+		if err != nil {
+			return HistoryErrorMsg{Err: fmt.Errorf("load history: %w", err)}
+		}
+		return HistoryLoadedMsg{Runs: runs}
+	}
 }
 
 // Update handles all incoming messages.
@@ -174,6 +219,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.runProgress = 0
 		m.output = nil
 		m.lastRunCmd = msg.Command
+		m.runStartedAt = time.Now()
 		return m, tea.Batch(m.spinner.Tick, tickCmd())
 
 	case runner.OutputMsg:
@@ -182,20 +228,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitNext(m.streamCh)
 
 	case runner.DoneMsg:
-		rec := runner.NewRecord(m.lastRunCmd, msg.Duration, msg.Err)
-		status := runner.StatusSuccess
-		if msg.Err != nil {
-			status = runner.StatusError
+		startedAt := m.runStartedAt
+		if startedAt.IsZero() {
+			startedAt = time.Now().Add(-msg.Duration)
 		}
+		run := db.NewRun(m.lastRunCmd, m.env.String(), startedAt, msg.Duration, msg.Err)
 		m.streamCh = nil
-		return m, func() tea.Msg { return RunDoneMsg{Status: status, Record: rec} }
+		if m.db != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			if id, err := m.db.InsertRun(ctx, run); err == nil {
+				run.ID = id
+			}
+			cancel()
+		}
+		return m, func() tea.Msg { return RunDoneMsg{Status: run.Status, Run: run} }
 
 	case RunDoneMsg:
 		m.running = false
 		m.runProgress = 1.0
 		m.hasLastRun = true
-		m.lastRunOK = msg.Status == runner.StatusSuccess
-		m.history = append([]runner.RunRecord{msg.Record}, m.history...)
+		m.lastRunOK = msg.Status == db.StatusSuccess
+		m.history = append([]db.Run{msg.Run}, m.history...)
+		if m.historyMax > 0 && len(m.history) > m.historyMax {
+			m.history = m.history[:m.historyMax]
+		}
+		return m, nil
+
+	case HistoryLoadedMsg:
+		m.history = msg.Runs
+		return m, nil
+
+	case HistoryErrorMsg:
+		// Non-fatal; leave history empty and move on.
 		return m, nil
 
 	case tickMsg:
@@ -247,6 +311,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.showOutputExpand {
 		return m.handleExpandedOutput(msg)
 	}
+	if m.showMakefileExpand {
+		return m.handleMakefileExpand(msg)
+	}
 	if m.searchInput.Focused() {
 		return m.handleSearchKey(msg)
 	}
@@ -279,8 +346,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case k == m.keys.Run, k == m.keys.RunAlt:
 		return m.triggerRun()
 	case k == m.keys.RerunLast:
-		if len(m.history) > 0 {
-			// TODO: re-run last via runner.StreamRun
+		if len(m.history) > 0 && !m.running {
+			return m.runByName(m.history[0].Command)
 		}
 	case k == m.keys.ToggleSecrets:
 		if m.activeTab == TabEnv {
@@ -288,6 +355,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case k == m.keys.ExpandOutput:
 		return m.toggleOutputExpand()
+	case k == m.keys.ExpandMakefile:
+		return m.toggleMakefileExpand()
 	// Quick shortcuts
 	case k == "b":
 		return m.runByName("build")
@@ -398,6 +467,102 @@ func (m Model) outputExpandVisH() int {
 		visH = 1
 	}
 	return visH
+}
+
+func (m Model) toggleMakefileExpand() (tea.Model, tea.Cmd) {
+	if m.showMakefileExpand {
+		m.showMakefileExpand = false
+		return m, nil
+	}
+	if len(m.filtered) == 0 {
+		return m, nil
+	}
+	cmd := m.filtered[m.selected]
+	m.makefileExpandLines = commandMakefileSection(m.makefileLines, cmd.Name)
+	m.makefileExpandOff = 0
+	m.showMakefileExpand = true
+	return m, nil
+}
+
+func (m Model) handleMakefileExpand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	visH := m.makefileExpandVisH()
+	maxOff := len(m.makefileExpandLines) - visH
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	switch msg.String() {
+	case "esc", "q", m.keys.ExpandMakefile:
+		m.showMakefileExpand = false
+	case "up", "k":
+		if m.makefileExpandOff > 0 {
+			m.makefileExpandOff--
+		}
+	case "down", "j":
+		if m.makefileExpandOff < maxOff {
+			m.makefileExpandOff++
+		}
+	case "pgup", "ctrl+b":
+		m.makefileExpandOff -= visH
+		if m.makefileExpandOff < 0 {
+			m.makefileExpandOff = 0
+		}
+	case "pgdown", "ctrl+f", " ":
+		m.makefileExpandOff += visH
+		if m.makefileExpandOff > maxOff {
+			m.makefileExpandOff = maxOff
+		}
+	case "g":
+		m.makefileExpandOff = 0
+	case "G":
+		m.makefileExpandOff = maxOff
+	}
+	return m, nil
+}
+
+func (m Model) makefileExpandVisH() int {
+	popupH := m.height - 4
+	if popupH < 10 {
+		popupH = 10
+	}
+	visH := popupH - 6
+	if visH < 1 {
+		visH = 1
+	}
+	return visH
+}
+
+func commandMakefileSection(lines []string, name string) []string {
+	if len(lines) == 0 || name == "" {
+		return nil
+	}
+	targetIdx := -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, "\t") {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == name+":" || strings.HasPrefix(trimmed, name+":") || strings.HasPrefix(trimmed, name+" ") {
+			targetIdx = i
+			break
+		}
+	}
+	if targetIdx == -1 {
+		return nil
+	}
+	startIdx := targetIdx
+	if targetIdx > 0 && strings.Contains(lines[targetIdx-1], "## "+name) {
+		startIdx = targetIdx - 1
+	}
+	endIdx := len(lines)
+	for i := targetIdx + 1; i < len(lines); i++ {
+		line := lines[i]
+		if line == "" || strings.HasPrefix(line, "\t") {
+			continue
+		}
+		endIdx = i
+		break
+	}
+	return lines[startIdx:endIdx]
 }
 
 // --- run dispatch ------------------------------------------------------------
