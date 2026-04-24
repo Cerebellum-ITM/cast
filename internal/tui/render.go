@@ -251,17 +251,33 @@ func (m Model) renderEnvCenter(p views.Palette, w, h int, vars []source.EnvVar) 
 		selectedVar = &v
 	}
 
+	var totalVarCount, sensitiveCount int
+	var envFilename string
+	if m.envFile != nil {
+		totalVarCount = len(m.envFile.Vars)
+		envFilename = m.envFile.Filename
+		for _, v := range m.envFile.Vars {
+			if v.Sensitive {
+				sensitiveCount++
+			}
+		}
+	}
+
 	detail := views.EnvDetail(p, views.EnvDetailProps{
-		Var:          selectedVar,
-		ShowSecrets:  m.showSecrets,
-		EditMode:     m.envEditMode,
-		EditBuffer:   m.envEditBuffer,
-		NewMode:      m.envNewMode,
-		NewKeyMode:   m.envNewKeyMode,
-		NewKeyBuffer: m.envNewKeyBuffer,
-		NewSensitive: m.envNewSensitive,
-		Width:        w,
-		Height:       detailH,
+		Var:            selectedVar,
+		ShowSecrets:    m.showSecrets,
+		EditMode:       m.envEditMode,
+		EditBuffer:     m.envEditBuffer,
+		NewMode:        m.envNewMode,
+		NewKeyMode:     m.envNewKeyMode,
+		NewKeyBuffer:   m.envNewKeyBuffer,
+		NewSensitive:   m.envNewSensitive,
+		EnvName:        m.env.String(),
+		VarCount:       totalVarCount,
+		SensitiveCount: sensitiveCount,
+		Filename:       envFilename,
+		Width:          w,
+		Height:         detailH,
 	})
 
 	sep := views.SepLine(p, w)

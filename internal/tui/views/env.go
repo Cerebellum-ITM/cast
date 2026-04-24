@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -26,16 +27,20 @@ type EnvSidebarProps struct {
 
 // EnvDetailProps holds data for the center-top panel (variable detail / edit).
 type EnvDetailProps struct {
-	Var          *source.EnvVar
-	ShowSecrets  bool
-	EditMode     bool
-	EditBuffer   string
-	NewMode      bool   // true when adding a brand-new variable
-	NewKeyMode   bool   // true during key-name entry step of new-var flow
-	NewKeyBuffer string // key name typed so far
-	NewSensitive bool   // sensitive toggle state during new-var flow
-	Width        int
-	Height       int
+	Var            *source.EnvVar
+	ShowSecrets    bool
+	EditMode       bool
+	EditBuffer     string
+	NewMode        bool   // true when adding a brand-new variable
+	NewKeyMode     bool   // true during key-name entry step of new-var flow
+	NewKeyBuffer   string // key name typed so far
+	NewSensitive   bool   // sensitive toggle state during new-var flow
+	EnvName        string // e.g. "local", "staging", "prod"
+	VarCount       int
+	SensitiveCount int
+	Filename       string
+	Width          int
+	Height         int
 }
 
 // EnvFilePreviewProps holds data for the center-bottom panel (.env file view).
@@ -233,10 +238,84 @@ func renderEnvSidebarHints(p Palette, w int, focused bool) string {
 
 // ── Detail (center top) ───────────────────────────────────────────────────────
 
+// envBadgeColor returns the badge background color matching the environment name.
+func envBadgeColor(p Palette, name string) color.Color {
+	switch name {
+	case "staging":
+		return p.Orange
+	case "prod":
+		return p.Red
+	default:
+		return p.Green
+	}
+}
+
+// envDetailHeader builds the two-line header block (title row + path row + separator).
+func envDetailHeader(p Palette, props EnvDetailProps) []string {
+	w := props.Width
+
+	// Line 1: ".env  [local]            12 variables"
+	dotEnv := Style(p.Accent, true).Render(".env")
+	badgeBg := envBadgeColor(p, props.EnvName)
+	envBadge := lipgloss.NewStyle().
+		Foreground(p.BgDeep).Background(badgeBg).
+		Padding(0, 1).Render(props.EnvName)
+	varCountStr := Style(p.FgDim, false).Render(fmt.Sprintf("%d variables", props.VarCount))
+
+	hLeft := dotEnv + "  " + envBadge
+	hGap := w - 4 - VisWidth(hLeft) - VisWidth(varCountStr)
+	if hGap < 1 {
+		hGap = 1
+	}
+	titleLine := Pad(2) + hLeft + strings.Repeat(" ", hGap) + varCountStr
+
+	// Line 2: "~/path/.env    [N show secrets]"
+	pathStr := Style(p.FgDim, false).Render(props.Filename)
+	var secretsLabel string
+	if props.ShowSecrets {
+		secretsLabel = "hide secrets"
+	} else {
+		secretsLabel = fmt.Sprintf("%d show secrets", props.SensitiveCount)
+	}
+	secretsBtn := lipgloss.NewStyle().
+		Background(p.BgSelected).Foreground(p.FgDim).
+		Padding(0, 1).Render(secretsLabel)
+	pGap := w - 4 - VisWidth(pathStr) - VisWidth(secretsBtn)
+	if pGap < 1 {
+		pGap = 1
+	}
+	pathLine := Pad(2) + pathStr + strings.Repeat(" ", pGap) + secretsBtn
+
+	return []string{titleLine, pathLine, SepLine(p, w)}
+}
+
+// centeredHints renders a hint row centered within width w.
+func centeredHints(p Palette, w int, editMode bool) string {
+	var content string
+	if editMode {
+		content = Style(p.Accent, true).Render("[⏎]") +
+			Style(p.FgMuted, false).Render(" save  ") +
+			Style(p.FgMuted, false).Render("[esc]") +
+			Style(p.FgMuted, false).Render(" cancel  ") +
+			Style(p.FgMuted, false).Render("[ctrl+s]") +
+			Style(p.FgMuted, false).Render(" sensitive")
+	} else {
+		content = Style(p.Accent, true).Render("[⏎]") +
+			Style(p.FgMuted, false).Render(" edit  ") +
+			Style(p.FgMuted, false).Render("[s]") +
+			Style(p.FgMuted, false).Render(" secrets  ") +
+			Style(p.FgMuted, false).Render("[ctrl+s]") +
+			Style(p.FgMuted, false).Render(" sensitive")
+	}
+	return lipgloss.NewStyle().Width(w).Background(p.BgPanel).Align(lipgloss.Center).Render(content)
+}
+
 // EnvDetail renders the top portion of the center panel.
 func EnvDetail(p Palette, props EnvDetailProps) string {
 	w, h := props.Width, props.Height
 	base := lipgloss.NewStyle().Width(w).Background(p.BgPanel)
+
+	hdr := envDetailHeader(p, props)
 
 	// New-variable flow: step 1 — enter key name.
 	if props.NewKeyMode {
@@ -249,27 +328,22 @@ func EnvDetail(p Palette, props EnvDetailProps) string {
 		if props.NewSensitive {
 			sensRow = Style(p.Yellow, false).Render("[⚿]") + " " +
 				Style(p.Yellow, true).Render("sensitive") + "  " +
-				lipgloss.NewStyle().Foreground(p.FgMuted).Render("ctrl+s to toggle")
+				Style(p.FgMuted, false).Render("ctrl+s to toggle")
 		} else {
 			sensRow = Style(p.FgDim, false).Render("[ ]") + " " +
 				Style(p.FgDim, false).Render("not sensitive") + "  " +
-				lipgloss.NewStyle().Foreground(p.FgMuted).Render("ctrl+s to toggle")
+				Style(p.FgMuted, false).Render("ctrl+s to toggle")
 		}
 
-		enterHint := Style(p.Accent, true).Render("[⏎]")
-		escHint := lipgloss.NewStyle().Foreground(p.FgMuted).Render("[esc]")
-		hintRow := enterHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" confirm  ") +
-			escHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" cancel")
-
-		lines := []string{
+		lines := append(hdr,
 			"",
-			Pad(2) + header,
+			Pad(2)+header,
 			"",
-			Pad(2) + keyLabel + keyInput,
-			Pad(2) + sensRow,
+			Pad(2)+keyLabel+keyInput,
+			Pad(2)+sensRow,
 			"",
-			Pad(2) + hintRow,
-		}
+			centeredHints(p, w, false),
+		)
 		return base.Height(h).Render(strings.Join(lines, "\n"))
 	}
 
@@ -286,91 +360,74 @@ func EnvDetail(p Palette, props EnvDetailProps) string {
 		if props.NewSensitive {
 			sensRow = Style(p.Yellow, false).Render("[⚿]") + " " +
 				Style(p.Yellow, true).Render("sensitive") + "  " +
-				lipgloss.NewStyle().Foreground(p.FgMuted).Render("ctrl+s to toggle")
+				Style(p.FgMuted, false).Render("ctrl+s to toggle")
 		} else {
 			sensRow = Style(p.FgDim, false).Render("[ ]") + " " +
 				Style(p.FgDim, false).Render("not sensitive") + "  " +
-				lipgloss.NewStyle().Foreground(p.FgMuted).Render("ctrl+s to toggle")
+				Style(p.FgMuted, false).Render("ctrl+s to toggle")
 		}
 
-		enterHint := Style(p.Accent, true).Render("[⏎]")
-		escHint := lipgloss.NewStyle().Foreground(p.FgMuted).Render("[esc]")
-		hintRow := enterHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" save  ") +
-			escHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" cancel")
-
-		lines := []string{
+		lines := append(hdr,
 			"",
-			Pad(2) + header,
+			Pad(2)+header,
 			"",
-			Pad(2) + keyLabel + keyStr,
-			Pad(2) + valLabel + valInput,
-			Pad(2) + sensRow,
+			Pad(2)+keyLabel+keyStr,
+			Pad(2)+valLabel+valInput,
+			Pad(2)+sensRow,
 			"",
-			Pad(2) + hintRow,
-		}
+			centeredHints(p, w, true),
+		)
 		return base.Height(h).Render(strings.Join(lines, "\n"))
 	}
 
 	if props.Var == nil {
-		empty := base.Height(h).Padding(1, 2).Foreground(p.FgDim).Render("no variable selected")
-		return empty
+		lines := append(hdr, "")
+		return base.Height(h).Render(strings.Join(lines, "\n"))
 	}
 
 	v := props.Var
 
-	// Header: key name + sensitive badge.
+	// Key + comment on the same line (matches image: "APP_ENV  Application environment").
 	keyStr := Style(p.Accent, true).Render(v.Key)
-	header := keyStr
-	if v.Sensitive {
+	varLine := keyStr
+	if v.Comment != "" {
+		varLine += "  " + Style(p.FgDim, false).Render(v.Comment)
+	} else if v.Sensitive {
 		badge := lipgloss.NewStyle().
 			Background(p.Yellow).Foreground(p.BgDeep).
 			Padding(0, 1).Render("⚿ sensitive")
-		header += "  " + badge
+		varLine += "  " + badge
 	}
 
-	// Value row.
-	label := Style(p.FgDim, false).Render("VALUE  ")
-	var valueStr string
+	// Value in a rounded box.
+	var displayVal string
 	if props.EditMode {
 		cursor := Style(p.Accent, false).Render("▌")
-		valueStr = Style(p.Fg, false).Render(props.EditBuffer) + cursor
+		displayVal = Style(p.Fg, false).Render(props.EditBuffer) + cursor
 	} else if v.Sensitive && !props.ShowSecrets {
-		valueStr = Style(p.FgDim, false).Render(masked)
+		displayVal = Style(p.FgDim, false).Render(masked)
 	} else {
-		valueStr = Style(p.Green, false).Render(v.Value)
+		displayVal = Style(p.Green, false).Render(v.Value)
 	}
-	valueRow := label + valueStr
+	// boxInnerW = panel width - 2(left margin) - border(1) - inner pad(1+1) - border(1)
+	boxInnerW := w - 6
+	if boxInnerW < 4 {
+		boxInnerW = 4
+	}
+	valueBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).BorderForeground(p.Border).
+		Background(p.BgDeep).Padding(0, 1).
+		MarginLeft(2).
+		Width(boxInnerW).
+		Render(displayVal)
 
-	// Comment row.
-	var commentRow string
-	if v.Comment != "" {
-		commentRow = Style(p.FgDim, false).Render("NOTE   ") +
-			Style(p.FgDim, false).Render(v.Comment)
-	}
-
-	// Hint row: only [⏎] is accented; other keys use FgMuted.
-	var hintRow string
-	if props.EditMode {
-		enterHint := Style(p.Accent, true).Render("[⏎]")
-		escHint := lipgloss.NewStyle().Foreground(p.FgMuted).Render("[esc]")
-		ctrlSHint := lipgloss.NewStyle().Foreground(p.FgMuted).Render("[ctrl+s]")
-		hintRow = enterHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" save  ") +
-			escHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" cancel  ") +
-			ctrlSHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" sensitive")
-	} else {
-		enterHint := Style(p.Accent, true).Render("[⏎]")
-		sHint := lipgloss.NewStyle().Foreground(p.FgMuted).Render("[s]")
-		ctrlSHint := lipgloss.NewStyle().Foreground(p.FgMuted).Render("[ctrl+s]")
-		hintRow = enterHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" edit  ") +
-			sHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" secrets  ") +
-			ctrlSHint + lipgloss.NewStyle().Foreground(p.FgMuted).Render(" sensitive")
-	}
-
-	lines := []string{"", Pad(2) + header, "", Pad(2) + valueRow}
-	if commentRow != "" {
-		lines = append(lines, Pad(2)+commentRow)
-	}
-	lines = append(lines, "", Pad(2)+hintRow)
+	lines := append(hdr,
+		"",
+		Pad(2)+varLine,
+		valueBox,
+		"",
+		centeredHints(p, w, props.EditMode),
+	)
 
 	return base.Height(h).Render(strings.Join(lines, "\n"))
 }
