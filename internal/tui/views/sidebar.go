@@ -127,7 +127,7 @@ func renderCommandCard(p Palette, cmd source.Command, selected bool, w int) (str
 	if descAvail < 1 {
 		descAvail = 1
 	}
-	descStr := lipgloss.NewStyle().Foreground(p.FgMuted).Render(Truncate(cmd.Desc, descAvail))
+	descStr := lipgloss.NewStyle().Foreground(p.FgDim).Render(Truncate(cmd.Desc, descAvail))
 	row2Content := strings.Repeat(" ", indent) + descStr
 
 	var rowStyle lipgloss.Style

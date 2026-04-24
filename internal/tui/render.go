@@ -78,8 +78,7 @@ func (m Model) renderTabs(p views.Palette) string {
 		if Tab(i) == m.activeTab {
 			parts = append(parts,
 				lipgloss.NewStyle().
-					Foreground(p.Fg).Bold(true).
-					Underline(true).UnderlineColor(p.Accent).
+					Foreground(p.Accent).Bold(true).
 					Padding(0, 1).Render(n))
 		} else {
 			parts = append(parts,
@@ -109,8 +108,8 @@ func (m Model) renderEnvPill(p views.Palette) string {
 					Render("● "+b.label))
 		} else {
 			parts = append(parts,
-				lipgloss.NewStyle().Foreground(p.FgDim).Padding(0, 1).
-					Render("● "+b.label))
+				lipgloss.NewStyle().Foreground(b.color).Padding(0, 1).
+					Render("○ "+b.label))
 		}
 	}
 

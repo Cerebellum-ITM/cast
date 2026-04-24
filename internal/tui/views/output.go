@@ -26,7 +26,7 @@ type OutputProps struct {
 func Output(p Palette, props OutputProps) string {
 	w, h := props.Width, props.Height
 
-	outputLabel := lipgloss.NewStyle().Foreground(p.FgDim).Bold(true).Render("OUTPUT")
+	outputLabel := lipgloss.NewStyle().Foreground(p.Fg).Bold(true).Render("OUTPUT")
 	var statusStr string
 	switch {
 	case props.Running:
@@ -82,7 +82,7 @@ func renderTermRows(p Palette, output []string, w, h int) []string {
 
 	if len(output) == 0 {
 		rows[0] = lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgDeep).
-			Render(Style(p.FgMuted, false).Render("run a command to see output…"))
+			Render(Style(p.FgDim, false).Render("run a command to see output…"))
 		return rows
 	}
 
@@ -102,7 +102,7 @@ func renderTermRows(p Palette, output []string, w, h int) []string {
 
 func renderRecentRows(p Palette, history []runner.RunRecord, w, max int) []string {
 	label := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel).
-		Foreground(p.FgDim).Bold(true).Render("RECENT")
+		Foreground(p.Fg).Bold(true).Render("RECENT")
 	sep := SepLine(p, w)
 
 	rows := []string{label, sep}
@@ -113,8 +113,8 @@ func renderRecentRows(p Palette, history []runner.RunRecord, w, max int) []strin
 		}
 		dot := StatusDot(p, r.Status)
 		name := Style(p.FgDim, false).Render(Truncate(r.Command, 10))
-		dur := Style(p.FgMuted, false).Render(r.Duration)
-		ts := Style(p.FgMuted, false).Render(r.Time)
+		dur := Style(p.FgDim, false).Render(r.Duration)
+		ts := Style(p.FgDim, false).Render(r.Time)
 		rows = append(rows, lipgloss.NewStyle().Width(w).Padding(0, 1).
 			Background(p.BgPanel).Render(dot+" "+name+"  "+dur+"  "+ts))
 	}

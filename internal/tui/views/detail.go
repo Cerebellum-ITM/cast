@@ -40,7 +40,7 @@ func renderCommandHeader(p Palette, props CommandsProps) (string, int) {
 	w := props.Width
 	if props.Cmd == nil {
 		noCmd := lipgloss.NewStyle().Width(w).Background(p.BgPanel).
-			Padding(1, 2).Foreground(p.FgMuted).Render("no commands")
+			Padding(1, 2).Foreground(p.FgDim).Render("no commands")
 		return noCmd + "\n" + SepLine(p, w), lipgloss.Height(noCmd) + 1
 	}
 
@@ -116,7 +116,7 @@ func renderMakefilePreview(p Palette, props CommandsProps, h int) string {
 	w := props.Width
 	if len(props.MakefileLines) == 0 {
 		return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgDeep).
-			Padding(1, 2).Foreground(p.FgMuted).
+			Padding(1, 2).Foreground(p.FgDim).
 			Render("no makefile loaded")
 	}
 
@@ -153,7 +153,7 @@ func renderMakefilePreview(p Palette, props CommandsProps, h int) string {
 // History renders the center panel when the history tab is active.
 func History(p Palette, records []runner.RunRecord, w, h int) string {
 	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
-		Background(p.BgPanel).Foreground(p.FgDim).Bold(true).
+		Background(p.BgPanel).Foreground(p.Fg).Bold(true).
 		Render("HISTORY")
 	sep := SepLine(p, w)
 
@@ -168,7 +168,7 @@ func History(p Palette, records []runner.RunRecord, w, h int) string {
 	}
 	if len(entries) == 0 {
 		entries = append(entries, lipgloss.NewStyle().Width(w).Padding(1, 2).
-			Background(p.BgPanel).Foreground(p.FgMuted).Render("no history yet"))
+			Background(p.BgPanel).Foreground(p.FgDim).Render("no history yet"))
 	}
 
 	content := titleRow + "\n" + sep + "\n" + strings.Join(entries, "\n")
