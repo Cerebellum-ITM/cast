@@ -156,6 +156,9 @@ type Model struct {
 	runProgress float64
 	output      []string
 	showConfirm bool
+	// confirmModalSel: 0 = cancel button, 1 = confirm button. Reset to 1 each
+	// time the modal opens so default-Enter still confirms.
+	confirmModalSel int
 	lastRunCmd  string // current/most-recent step name (used by output header & history)
 	// lastRunCommands is the ordered list of targets dispatched on the user's
 	// most recent action: one name for a single run, ≥2 for a chain. This is
@@ -1187,12 +1190,33 @@ func (m Model) makefilePageStep() int {
 }
 
 func (m Model) handleConfirmModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	k := msg.String()
+	switch k {
+	case "left", "h":
+		m.confirmModalSel = 0
+		return m, nil
+	case "right", "l":
+		m.confirmModalSel = 1
+		return m, nil
+	case "tab":
+		m.confirmModalSel = 1 - m.confirmModalSel
+		return m, nil
+	}
+	// Enter dispatches per current selection; y/n are direct hotkeys.
+	switch k {
 	case "esc", "n":
 		m.showConfirm = false
 		m.pendingRerunExtras = nil
 		m.pendingRerunChain = nil
-	case "enter", "y":
+	case "enter":
+		if m.confirmModalSel == 0 {
+			m.showConfirm = false
+			m.pendingRerunExtras = nil
+			m.pendingRerunChain = nil
+			return m, nil
+		}
+		fallthrough
+	case "y":
 		m.showConfirm = false
 		// Chain rerun: dispatch the saved chain end-to-end.
 		if len(m.pendingRerunChain) > 0 {

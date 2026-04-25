@@ -76,7 +76,7 @@ func (m Model) renderMain() string {
 	}
 
 	if m.showConfirm && len(m.filtered) > 0 {
-		box := views.Modal(p, m.filtered[m.selected].Name, m.env.String())
+		box := views.Modal(p, m.filtered[m.selected].Name, m.env.String(), m.confirmModalSel)
 		return views.OverlayCenter(full, box)
 	}
 
