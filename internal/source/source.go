@@ -18,6 +18,18 @@ type Command struct {
 	NoConfirm bool   // suppress confirmation even in staging/prod (e.g. logs -f)
 	Stream    bool   // long-running log-streaming command (docker logs -f, tail -f…)
 	Interactive bool // needs a real TTY (python3, bash, psql…); suspends the TUI
+	Picks     []PickStep // sequential folder pickers required before run; nil = none
+}
+
+// PickStep describes one folder-picker step. Pickers run sequentially before
+// dispatching the target. Each step lists the contents of BaseDirTemplate
+// (with `{pickN}` placeholders substituted from previous selections), filters
+// by Filter (substring match, case-insensitive; supports `*` glob), and stores
+// the chosen folder name into Alias (or `CAST_PICK_<index>` if Alias is empty).
+type PickStep struct {
+	BaseDirTemplate string // e.g. ".", "services", "{pick1}"
+	Filter          string // optional substring/glob, e.g. "*addons*"
+	Alias           string // env/make var name; "" => CAST_PICK_<n>
 }
 
 // EnvVar is a single variable from a .env file.

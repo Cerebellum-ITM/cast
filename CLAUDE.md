@@ -79,6 +79,37 @@ Per-command flag tags recognized on the `## name: desc …` line:
 | `[interactive]` / `[no-interactive]` | Run with the real TTY attached: the TUI suspends, the target inherits stdin/stdout/stderr (use for `python3`, `bash`, `psql`, `vim`…), and resumes on exit. Implies `[no-stream]`. |
 | `[sc=X]` / `[shortcut=X]` | Pin a keyboard shortcut letter |
 | `[tags=a,b,c]` | Pin category tags |
+| `[pick=SPEC]` | Open a folder picker before running (see *Pick flow*). |
+| `[as=A,B,…]` | Optional alias names for the env/make vars produced by `[pick=…]`. Defaults to `CAST_PICK_1`, `CAST_PICK_2`, … |
+
+### Pick flow
+
+Commands tagged with `[pick=…]` open a centered folder picker before
+executing. Each `*` in the spec is one picker step; selections are exposed
+to the recipe both as make variables (`$(CAST_PICK_N)` / `$(ALIAS)`) and as
+environment variables.
+
+Spec grammar: `BASE/*[~FILTER]/*…` with `;` separating independent groups.
+
+| Spec                         | Behavior                                               |
+|------------------------------|--------------------------------------------------------|
+| `./*`                        | Pick a folder in cwd.                                  |
+| `./*~addons`                 | Pick a folder in cwd whose name contains `addons`.     |
+| `./*~*addons*/*`             | First pick filtered by `*addons*`, then a subfolder.   |
+| `services/*/*`               | Pick `services/<X>`, then `services/<X>/<Y>`.          |
+| `./*~odoo; configs/*`        | Two independent picks: one in cwd (filter `odoo`), one in `./configs`. |
+
+Filter syntax: `~name` is a substring match; `~*name*` enables `*` glob
+semantics. Both are case-insensitive.
+
+Use `[as=ROOT,MODULE]` to map the picks to friendly names instead of
+`CAST_PICK_1` / `CAST_PICK_2`. The values stored are paths relative to cwd
+(e.g. `services/api/v2`), so `cd $(ROOT)` works directly.
+
+Cancel the modal with `esc`; `←` / empty-buffer backspace steps back to the
+previous pick. The picker is also a fzf — type to filter and press `enter`
+to select. Folder rows are decorated with content-aware glyphs (Odoo
+modules, Git repos, Makefiles, `package.json`, …).
 
 ### App mode: single vs chain
 
@@ -157,7 +188,7 @@ needs to display the current build.
   Makefile tag grammar.
 
 Edit `version.Current` in the same commit that introduces the change — never
-in a separate bookkeeping commit. Current: `0.4.1`.
+in a separate bookkeeping commit. Current: `0.9.0`.
 
 ---
 

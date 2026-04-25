@@ -42,6 +42,38 @@ func (m Model) renderMain() string {
 	sts := views.StatusBar(p, len(m.commands), m.makefilePath, m.width)
 	full := hdr + "\n" + bdy + "\n" + sts
 
+	if m.showPicker {
+		popupW := m.width - 12
+		if popupW < 50 {
+			popupW = 50
+		}
+		if popupW > 90 {
+			popupW = 90
+		}
+		popupH := m.height - 6
+		if popupH < 14 {
+			popupH = 14
+		}
+		var filter string
+		if m.pickerStep < len(m.pickerCmd.Picks) {
+			filter = m.pickerCmd.Picks[m.pickerStep].Filter
+		}
+		box := views.Picker(p, views.PickerProps{
+			CmdName:    m.pickerCmd.Name,
+			StepIdx:    m.pickerStep,
+			StepCount:  len(m.pickerCmd.Picks),
+			BaseDir:    m.pickerBase,
+			Filter:     filter,
+			Search:     m.pickerSearch,
+			Entries:    m.pickerEntries,
+			Cursor:     m.pickerCursor,
+			Selections: m.pickerSelections,
+			Width:      popupW,
+			Height:     popupH,
+		})
+		return views.OverlayCenter(full, box)
+	}
+
 	if m.showConfirm && len(m.filtered) > 0 {
 		box := views.Modal(p, m.filtered[m.selected].Name, m.env.String())
 		return views.OverlayCenter(full, box)

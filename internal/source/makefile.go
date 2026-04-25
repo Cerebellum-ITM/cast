@@ -102,6 +102,9 @@ func (m *MakefileSource) Load() ([]Command, error) {
 				if meta.state.InteractiveSet {
 					cmd.Interactive = meta.state.Interactive
 				}
+				if meta.state.HasPick {
+					cmd.Picks = ParsePickSpec(meta.state.PickRaw, meta.state.PickAliases)
+				}
 				// Interactive implies non-streaming: the subprocess owns the
 				// TTY, so there's no line buffer to tail. Disable stream and
 				// pin it so recipe auto-detection can't flip it back on.
@@ -183,6 +186,10 @@ type DocTagState struct {
 	NoConfirm   bool     // [no-confirm] present
 	InteractiveSet bool  // true iff [interactive] or [no-interactive] present
 	Interactive    bool  // value when InteractiveSet
+	PickRaw        string // raw value of [pick=…]; "" if absent
+	HasPick        bool   // true iff [pick=…] was present
+	PickAliases    []string // raw [as=a,b,c] list; nil if absent
+	HasPickAliases bool
 }
 
 // docMeta is the parse result for the description portion of a doc line.
@@ -258,6 +265,20 @@ func extractDocTags(desc string) docMeta {
 			val := inner[strings.Index(inner, "=")+1:]
 			m.state.Tags = splitTagList(val)
 			m.state.HasTags = true
+		case strings.HasPrefix(lower, "pick="):
+			if m.state.HasPick {
+				return m
+			}
+			val := inner[strings.Index(inner, "=")+1:]
+			m.state.PickRaw = strings.TrimSpace(val)
+			m.state.HasPick = true
+		case strings.HasPrefix(lower, "as="):
+			if m.state.HasPickAliases {
+				return m
+			}
+			val := inner[strings.Index(inner, "=")+1:]
+			m.state.PickAliases = splitTagList(val)
+			m.state.HasPickAliases = true
 		default:
 			return m
 		}

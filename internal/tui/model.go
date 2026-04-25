@@ -198,6 +198,21 @@ type Model struct {
 	tagsEditing    bool
 	tagsEditBuffer string
 
+	// Folder-picker popup. Active when a command tagged with [pick=…] is
+	// triggered. Steps run sequentially; each selection accumulates into
+	// pickerSelections and pickerExtraVars (KEY=VAL). Cancellation aborts the
+	// whole flow.
+	showPicker        bool
+	pickerCmd         source.Command
+	pickerStep        int
+	pickerSelections  []string
+	pickerExtraVars   []string
+	pickerEntries     []views.PickerEntry
+	pickerEntriesAll  []views.PickerEntry
+	pickerCursor      int
+	pickerSearch      string
+	pickerBase        string
+
 	// Output expand popup
 	showOutputExpand bool
 	outputExpandOff  int
@@ -602,6 +617,9 @@ func (m Model) View() tea.View {
 // --- key handling ------------------------------------------------------------
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.showPicker {
+		return m.handlePickerKey(msg)
+	}
 	if m.showConfirm {
 		return m.handleConfirmModal(msg)
 	}
@@ -1618,29 +1636,39 @@ func (m Model) dispatchRun() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	cmdMeta := m.filtered[m.selected]
-	return m.startSingleRun(cmdMeta)
+	if len(cmdMeta.Picks) > 0 {
+		return m.openPicker(cmdMeta)
+	}
+	return m.startSingleRun(cmdMeta, nil)
+}
+
+// dispatchPickedCommand is called by the picker once all pick steps are done.
+// It bypasses the picker check in dispatchRun and forwards the resolved
+// KEY=VAL pairs straight to the runner.
+func (m Model) dispatchPickedCommand(cmdMeta source.Command, extraVars []string) (tea.Model, tea.Cmd) {
+	return m.startSingleRun(cmdMeta, extraVars)
 }
 
 // startSingleRun begins fresh execution of cmdMeta. The chain state is reset
 // to a single-element chain; subsequent enqueues (shortcuts while running)
 // append to it. If the run ends without additions, no chain is persisted.
-func (m Model) startSingleRun(cmdMeta source.Command) (tea.Model, tea.Cmd) {
+func (m Model) startSingleRun(cmdMeta source.Command, extraVars []string) (tea.Model, tea.Cmd) {
 	m.chainCommands = []string{cmdMeta.Name}
 	m.chainStepIdx = 0
 	m.chainRunIDs = m.chainRunIDs[:0]
 	m.chainStartAt = time.Now()
-	return m.dispatchCommand(cmdMeta)
+	return m.dispatchCommand(cmdMeta, extraVars)
 }
 
 // dispatchCommand fires the given command as a single step. Caller has
 // already configured chain state (chainCommands / chainStepIdx) as needed.
-func (m Model) dispatchCommand(cmdMeta source.Command) (tea.Model, tea.Cmd) {
+func (m Model) dispatchCommand(cmdMeta source.Command, extraVars []string) (tea.Model, tea.Cmd) {
 	if cmdMeta.Interactive {
-		return m.dispatchInteractive(cmdMeta.Name)
+		return m.dispatchInteractive(cmdMeta.Name, extraVars)
 	}
 	name := cmdMeta.Name
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := runner.StreamRun(ctx, m.makefileDir, name)
+	ch := runner.StreamRun(ctx, m.makefileDir, name, extraVars)
 	m.streamCh = ch
 	m.runCancel = cancel
 	stream := cmdMeta.Stream
@@ -1665,7 +1693,10 @@ func (m Model) advanceChain() (tea.Model, tea.Cmd, bool) {
 	name := m.chainCommands[next]
 	for _, c := range m.commands {
 		if c.Name == name {
-			model, cmd := m.dispatchCommand(c)
+			// Chained steps don't reopen the picker — chains pre-dated this
+			// feature and treating them otherwise would block mid-chain on a
+			// modal. Picks are only honored on the user-initiated run.
+			model, cmd := m.dispatchCommand(c, nil)
 			return model, cmd, true
 		}
 	}
@@ -1772,17 +1803,17 @@ func (m Model) startChainFromCommands(names []string) (tea.Model, tea.Cmd) {
 	m.chainStepIdx = 0
 	m.chainRunIDs = m.chainRunIDs[:0]
 	m.chainStartAt = time.Now()
-	return m.dispatchCommand(*head)
+	return m.dispatchCommand(*head, nil)
 }
 
 // dispatchInteractive runs the target with the real TTY attached, suspending
 // the Bubble Tea program while the process is alive. No streaming channel is
 // used; the DoneMsg comes from tea.ExecProcess' callback.
-func (m Model) dispatchInteractive(name string) (tea.Model, tea.Cmd) {
+func (m Model) dispatchInteractive(name string, extraVars []string) (tea.Model, tea.Cmd) {
 	m.streamCh = nil
 	m.runCancel = nil
 	startCmd := func() tea.Msg { return RunStartMsg{Command: name, Interactive: true} }
-	return m, tea.Sequence(startCmd, runner.InteractiveRun(m.makefileDir, name))
+	return m, tea.Sequence(startCmd, runner.InteractiveRun(m.makefileDir, name, extraVars))
 }
 
 func waitNext(ch <-chan tea.Msg) tea.Cmd {
