@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/Cerebellum-ITM/cast/internal/config"
 	"github.com/Cerebellum-ITM/cast/internal/source"
 	"github.com/Cerebellum-ITM/cast/internal/tui/views"
 )
@@ -409,6 +410,25 @@ func (m Model) renderEnvCenter(p views.Palette, w, h int, vars []source.EnvVar) 
 
 func (m Model) renderCenter(p views.Palette, w, h int) string {
 	switch m.activeTab {
+	case TabTheme:
+		opts := make([]views.ThemeOption, 0, len(themeOrder))
+		for _, t := range themeOrder {
+			opts = append(opts, views.ThemeOption{
+				Key:      string(t),
+				Label:    themeLabel(t),
+				Preview:  paletteFor(t, m.env),
+				IsActive: t == m.theme,
+				Saved:    t == m.savedTheme,
+			})
+		}
+		return views.Theme(p, views.ThemeProps{
+			Options:    opts,
+			Selected:   m.themeTabSel,
+			LocalPath:  config.LocalPath(),
+			WriteError: m.themeError,
+			Width:      w,
+			Height:     h,
+		})
 	case TabHistory:
 		return views.History(p, views.HistoryProps{
 			Records:   m.history,
@@ -437,6 +457,20 @@ func (m Model) renderCenter(p views.Palette, w, h int) string {
 			Height:          h,
 		})
 	}
+}
+
+// themeLabel returns the display name shown in the Theme tab. Lives here
+// (and not in the views package) so views stay decoupled from theme IDs.
+func themeLabel(t config.Theme) string {
+	switch t {
+	case config.ThemeCatppuccin:
+		return "Catppuccin"
+	case config.ThemeDracula:
+		return "Dracula"
+	case config.ThemeNord:
+		return "Nord"
+	}
+	return string(t)
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

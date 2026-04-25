@@ -1,9 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -92,6 +94,7 @@ type LayoutSection struct {
 
 // LocalFile mirrors .cast.toml found in the working directory.
 type LocalFile struct {
+	Theme    string        `toml:"theme"` // catppuccin | dracula | nord
 	Env      LocalEnv      `toml:"env"`
 	Commands LocalCommands `toml:"commands"`
 	Layout   LayoutSection `toml:"layout"`
@@ -221,6 +224,84 @@ func EnsureGlobal() error {
 // WriteLocalTemplate writes the local config template to path with the given env name.
 func WriteLocalTemplate(path, envName string) error {
 	return os.WriteFile(path, []byte(LocalTemplateSrc(envName)), 0o644)
+}
+
+// WriteLocalTheme persists `theme = "<name>"` to the local .cast.toml,
+// preserving the rest of the file. If the file does not exist it is created
+// with a minimal stub. If a top-level `theme = "..."` line already exists it
+// is replaced; otherwise a new line is inserted right after the leading
+// comment block (or at the top if there is none). Other sections, comments,
+// and formatting are left intact — full TOML re-encoding would discard
+// those.
+func WriteLocalTheme(path, theme string) error {
+	theme = strings.TrimSpace(theme)
+	if theme == "" {
+		return fmt.Errorf("write local theme: empty value")
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		stub := "theme = \"" + theme + "\"\n"
+		return os.WriteFile(path, []byte(stub), 0o644)
+	}
+	if err != nil {
+		return fmt.Errorf("read local config: %w", err)
+	}
+	out := setTopLevelTomlValue(string(data), "theme", theme)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(out), 0o644); err != nil {
+		return fmt.Errorf("write local config: %w", err)
+	}
+	return os.Rename(tmp, path)
+}
+
+// setTopLevelTomlValue replaces (or inserts) a top-level `key = "value"`
+// assignment in src. "Top-level" means before the first `[section]` header.
+// Existing lines are matched case-sensitively. Quoted string values only —
+// numeric/boolean keys aren't needed for cast's surfaces yet.
+func setTopLevelTomlValue(src, key, value string) string {
+	trailingNL := strings.HasSuffix(src, "\n")
+	lines := strings.Split(strings.TrimRight(src, "\n"), "\n")
+	newLine := key + " = \"" + value + "\""
+
+	// Find existing assignment before the first [section] header.
+	matchPrefix := key + " ="
+	matchPrefixSp := key + "="
+	insertIdx := -1
+	for i, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "[") && !strings.HasPrefix(t, "[[") {
+			break
+		}
+		if strings.HasPrefix(t, matchPrefix) || strings.HasPrefix(t, matchPrefixSp) {
+			lines[i] = newLine
+			out := strings.Join(lines, "\n")
+			if trailingNL {
+				out += "\n"
+			}
+			return out
+		}
+		// Track the last non-comment, non-blank line above any section so we
+		// can append after it on insertion.
+		if t != "" && !strings.HasPrefix(t, "#") {
+			insertIdx = i
+		}
+	}
+
+	// Not found → insert. Place after the last top-level assignment, or at
+	// the very top if there are none.
+	if insertIdx >= 0 {
+		out := append([]string(nil), lines[:insertIdx+1]...)
+		out = append(out, newLine)
+		out = append(out, lines[insertIdx+1:]...)
+		lines = out
+	} else {
+		lines = append([]string{newLine}, lines...)
+	}
+	res := strings.Join(lines, "\n")
+	if trailingNL {
+		res += "\n"
+	}
+	return res
 }
 
 // ── Templates ─────────────────────────────────────────────────────────────────

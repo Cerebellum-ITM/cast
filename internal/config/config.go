@@ -159,6 +159,9 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 	// ── Layer 3: local file ───────────────────────────────────────────────
 	local, ok := LoadLocal()
 	if ok {
+		if t := Theme(local.Theme); t != "" {
+			cfg.Theme = t
+		}
 		if local.Env.Name != "" {
 			cfg.Env = ParseEnv(local.Env.Name)
 		}
@@ -191,9 +194,12 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 		cfg.Theme = Theme(flagTheme)
 	}
 
-	// Resolve per-environment theme from global (only when theme wasn't set
-	// by a CLI flag, so the flag always wins).
-	if flagTheme == "" {
+	// Resolve per-environment theme from global. CLI flag > local file >
+	// global per-env override > global default. The flag and local layers
+	// have already been applied; only fall back to the global per-env map
+	// when neither the CLI flag nor the local file claimed the theme.
+	localSetTheme := ok && local.Theme != ""
+	if flagTheme == "" && !localSetTheme {
 		if key := cfg.Env.envKey(); key != "" {
 			if t, found := global.Theme.Env[key]; found && t != "" {
 				cfg.Theme = Theme(t)

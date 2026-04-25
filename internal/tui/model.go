@@ -225,6 +225,11 @@ type Model struct {
 	tagsEditing    bool
 	tagsEditBuffer string
 
+	// Theme tab state.
+	themeTabSel int    // 0..len(themes)-1
+	themeError  string // last error from saving the theme; "" when clean
+	savedTheme  config.Theme // theme value currently persisted in .cast.toml; "" if none
+
 	// Folder-picker popup. Active when a command tagged with [pick=…] is
 	// triggered. Steps run sequentially; each selection accumulates into
 	// pickerSelections and pickerExtraVars (KEY=VAL). Cancellation aborts the
@@ -289,6 +294,13 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		}
 	}
 
+	// Detect whether the local .cast.toml currently pins a theme so the
+	// Theme tab can show "saved" vs "active (unsaved)" states.
+	var savedTheme config.Theme
+	if local, ok := config.LoadLocal(); ok && local.Theme != "" {
+		savedTheme = config.Theme(local.Theme)
+	}
+
 	var lastRunCmds []string
 	var lastRunExtras []string
 	if database != nil {
@@ -313,6 +325,8 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		db:              database,
 		env:             cfg.Env,
 		theme:           cfg.Theme,
+		savedTheme:      savedTheme,
+		themeTabSel:     themeIndex(cfg.Theme),
 		iconStyle:       views.ParseIconStyle(cfg.IconStyle),
 		searchInput:     si,
 		envSearchInput:  esi,
@@ -689,6 +703,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.activeTab == TabEnv {
 		return m.handleEnvKey(msg)
 	}
+	if m.activeTab == TabTheme {
+		return m.handleThemeKey(msg)
+	}
 	if m.searchInput.Focused() {
 		return m.handleSearchKey(msg)
 	}
@@ -917,6 +934,79 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	return m, nil
+}
+
+// themeOrder is the display order of selectable themes in the Theme tab.
+// Add new themes here when palettes are added in styles.go.
+var themeOrder = []config.Theme{
+	config.ThemeCatppuccin,
+	config.ThemeDracula,
+	config.ThemeNord,
+}
+
+// themeIndex returns the slot of t in themeOrder, or 0 when not found.
+func themeIndex(t config.Theme) int {
+	for i, x := range themeOrder {
+		if x == t {
+			return i
+		}
+	}
+	return 0
+}
+
+// handleThemeKey routes input while the Theme tab is active. Up/Down move
+// the cursor with live preview; Enter persists the selection to the local
+// .cast.toml.
+func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "q", "esc":
+		m.activeTab = TabCommands
+		return m, nil
+	case "tab", m.keys.TabNext:
+		m.activeTab = (m.activeTab + 1) % 4
+		return m, nil
+	case m.keys.TabPrev:
+		m.activeTab = (m.activeTab + 3) % 4
+		return m, nil
+	case m.keys.Up, "k":
+		if m.themeTabSel > 0 {
+			m.themeTabSel--
+			m.theme = themeOrder[m.themeTabSel] // live preview
+			m.themeError = ""
+		}
+		return m, nil
+	case m.keys.Down, "j":
+		if m.themeTabSel < len(themeOrder)-1 {
+			m.themeTabSel++
+			m.theme = themeOrder[m.themeTabSel]
+			m.themeError = ""
+		}
+		return m, nil
+	case "enter":
+		return m.commitThemeSelection()
+	}
+	return m, nil
+}
+
+// commitThemeSelection writes the current cursor's theme to the local
+// .cast.toml so the choice survives across sessions. Errors are surfaced
+// in m.themeError so the view can render a red banner.
+func (m Model) commitThemeSelection() (tea.Model, tea.Cmd) {
+	if m.themeTabSel < 0 || m.themeTabSel >= len(themeOrder) {
+		return m, nil
+	}
+	chosen := themeOrder[m.themeTabSel]
+	path := config.LocalPath()
+	if err := config.WriteLocalTheme(path, string(chosen)); err != nil {
+		m.themeError = err.Error()
+		return m, nil
+	}
+	m.theme = chosen
+	m.savedTheme = chosen
+	m.themeError = ""
 	return m, nil
 }
 
