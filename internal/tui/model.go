@@ -557,8 +557,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// Chain ended (last step done, or a step failed/was interrupted).
+		// A chain is anything that ran ≥ 2 steps — including auto-queued ones
+		// where the user pressed shortcuts mid-run. Persist the full intent
+		// (m.chainCommands, not the executed prefix) as both the sequence
+		// record AND the rerun card target so Ctrl+R replays the whole
+		// chain even if a middle step failed.
 		if len(m.chainRunIDs) >= 2 {
 			m.persistChain(run.Status)
+			m.lastRunCommands = append([]string(nil), m.chainCommands...)
+			m.lastRunExtraVars = m.lastRunExtraVars[:0]
+			m.hasLastRun = true
+			m.persistLastRun(m.chainCommands, nil)
 		}
 		m.chainCommands = nil
 		m.chainStepIdx = -1
