@@ -85,6 +85,12 @@ type Config struct {
 	// ShowCenterPanel controls whether the middle detail/env panel is
 	// rendered. When false, sidebar + output share the full width.
 	ShowCenterPanel bool
+
+	// IconStyle selects the glyph set used by the TUI: "nerdfont" (default)
+	// uses Nerd Font private-use codepoints; "emoji" uses generic Unicode
+	// emoji that render in any terminal. Anything unrecognized falls back to
+	// nerdfont.
+	IconStyle string
 }
 
 // Default returns a Config with sensible hardcoded defaults.
@@ -103,6 +109,7 @@ func Default() *Config {
 		OutputWidthPct:  30,
 		SidebarWidthPct: 25,
 		ShowCenterPanel: true,
+		IconStyle:       "nerdfont",
 	}
 }
 
@@ -144,6 +151,9 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 	}
 	if global.Layout.ShowCenterPanel != nil {
 		cfg.ShowCenterPanel = *global.Layout.ShowCenterPanel
+	}
+	if v := global.UI.Icons; v != "" {
+		cfg.IconStyle = v
 	}
 
 	// ── Layer 3: local file ───────────────────────────────────────────────

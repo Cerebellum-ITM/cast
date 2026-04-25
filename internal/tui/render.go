@@ -68,6 +68,7 @@ func (m Model) renderMain() string {
 			Entries:    m.pickerEntries,
 			Cursor:     m.pickerCursor,
 			Selections: m.pickerSelections,
+			IconStyle:  m.iconStyle,
 			Width:      popupW,
 			Height:     popupH,
 		})

@@ -149,6 +149,7 @@ type Model struct {
 	activeTab Tab
 	env       config.Env
 	theme     config.Theme
+	iconStyle views.IconStyle
 
 	// Execution state
 	running     bool
@@ -272,6 +273,7 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		db:              database,
 		env:             cfg.Env,
 		theme:           cfg.Theme,
+		iconStyle:       views.ParseIconStyle(cfg.IconStyle),
 		searchInput:     si,
 		envSearchInput:  esi,
 		spinner:         sp,

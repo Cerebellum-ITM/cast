@@ -188,7 +188,32 @@ needs to display the current build.
   Makefile tag grammar.
 
 Edit `version.Current` in the same commit that introduces the change — never
-in a separate bookkeeping commit. Current: `0.9.0`.
+in a separate bookkeeping commit. Current: `0.10.0`.
+
+---
+
+## Icon convention (IMPORTANT)
+
+**All icons in cast must be Nerd Font glyphs.** The default icon style is
+`nerdfont`; an `emoji` fallback exists (`[ui] icons = "emoji"` in
+`~/.config/cast/cast.toml`) for users without a Nerd Font–patched terminal,
+but every new icon must be added to `internal/tui/views/icons.go` —
+**Nerd Font codepoint first**, with an emoji fallback alongside it. Never
+hard-code an emoji directly in a view file.
+
+When adding a new icon:
+
+1. Pick the Nerd Font glyph from <https://www.nerdfonts.com/cheat-sheet>.
+2. Add a field to `IconSet` in `internal/tui/views/icons.go` (Nerd Font
+   value in the `IconNerdFont` branch, emoji fallback in `IconEmoji`).
+3. Reference it from the view via `Icons(style).<Field>` — never inline a
+   literal glyph in a view, model, or other package.
+4. If you must show an icon outside the views package (e.g. picker icon
+   resolution in `internal/tui/picker.go`), pass `views.IconStyle` in and
+   resolve through `views.Icons(style)` so the user's preference wins.
+
+The model carries the resolved `views.IconStyle` (parsed from `cfg.IconStyle`
+at `tui.New`) and propagates it to views via Props.
 
 ---
 

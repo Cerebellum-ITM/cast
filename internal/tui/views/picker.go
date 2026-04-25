@@ -24,6 +24,7 @@ type PickerProps struct {
 	Entries    []PickerEntry // post-filter list
 	Cursor     int           // selected index into Entries
 	Selections []string      // already-chosen folders (for the breadcrumb)
+	IconStyle  IconStyle     // controls the title glyph; entry icons are pre-baked
 	Width      int
 	Height     int
 }
@@ -39,7 +40,7 @@ func Picker(p Palette, props PickerProps) string {
 		h = 10
 	}
 
-	titleTxt := "📁  Select folder"
+	titleTxt := Icons(props.IconStyle).PickerTitle + "  Select folder"
 	step := stepBadge(p, props.StepIdx, props.StepCount)
 	title := Style(p.Accent, true).Render(titleTxt) + "  " + step
 

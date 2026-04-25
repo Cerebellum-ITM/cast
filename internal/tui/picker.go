@@ -57,7 +57,7 @@ func (m *Model) refreshPickerEntries() {
 		}
 		filtered = append(filtered, views.PickerEntry{
 			Name: name,
-			Icon: pickerIcon(filepath.Join(abs, name)),
+			Icon: pickerIcon(filepath.Join(abs, name), m.iconStyle),
 		})
 	}
 	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Name < filtered[j].Name })
@@ -85,13 +85,15 @@ func (m *Model) applyPickerSearch() {
 	}
 }
 
-// pickerIcon picks a nerd-font glyph that hints at the directory's contents.
-// Best-effort — silently falls back to a plain folder if the dir can't be read.
-func pickerIcon(path string) string {
-	const folder = "📁"
+// pickerIcon picks a content-aware glyph for the directory at path. It
+// inspects path for project-marker files and returns the matching icon from
+// the active style's IconSet (nerdfont or emoji). All glyph definitions live
+// in views/icons.go — never inline a glyph here.
+func pickerIcon(path string, style views.IconStyle) string {
+	icons := views.Icons(style)
 	st, err := os.Stat(path)
 	if err != nil || !st.IsDir() {
-		return folder
+		return icons.FolderGeneric
 	}
 	has := func(name string) bool {
 		_, err := os.Stat(filepath.Join(path, name))
@@ -99,21 +101,21 @@ func pickerIcon(path string) string {
 	}
 	switch {
 	case has(".git"):
-		return ""
+		return icons.FolderGit
 	case has("Makefile"):
-		return ""
+		return icons.FolderMake
 	case has("__manifest__.py"), has("__openerp__.py"):
-		return "" // Odoo module
+		return icons.FolderOdoo
 	case has("package.json"):
-		return ""
+		return icons.FolderNode
 	case has("__init__.py"), has("pyproject.toml"), has("setup.py"):
-		return ""
+		return icons.FolderPython
 	case has("go.mod"):
-		return ""
+		return icons.FolderGo
 	case has("Cargo.toml"):
-		return ""
+		return icons.FolderRust
 	}
-	return folder
+	return icons.FolderGeneric
 }
 
 // handlePickerKey routes keystrokes while the folder picker is open.

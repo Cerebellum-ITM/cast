@@ -17,10 +17,18 @@ type GlobalFile struct {
 	DB      GlobalDB      `toml:"db"`
 	Layout  LayoutSection `toml:"layout"`
 	Source  GlobalSource  `toml:"source"`
+	UI      GlobalUI      `toml:"ui"`
 
 	// WIP: Keybindings   GlobalKeybindings   `toml:"keybindings"`
 	// WIP: Notifications GlobalNotifications `toml:"notifications"`
 	// WIP: Update        GlobalUpdate        `toml:"update"`
+}
+
+// GlobalUI configures TUI presentation knobs that aren't tied to a theme.
+type GlobalUI struct {
+	// Icons selects the glyph set: "nerdfont" (default) or "emoji". Empty =
+	// inherit. Unknown values fall back to nerdfont.
+	Icons string `toml:"icons"`
 }
 
 // GlobalSource controls how cast locates the task-source file (Makefile).
@@ -243,6 +251,14 @@ path = ""   # empty = ~/.config/cast/cast.db
 # this many parent directories looking for one. Useful for monorepos / git
 # submodules where the workdir sits below the Makefile. 0 disables walk-up.
 lookup_depth = 5
+
+[ui]
+# Icon set used across the TUI (sidebar status dots, picker folder glyphs,
+# splash, etc.).
+#   "nerdfont" — Nerd Font private-use glyphs (default; recommended). Requires
+#                a Nerd Font–patched terminal font.
+#   "emoji"    — Generic Unicode emoji fallback for terminals without Nerd Font.
+icons = "nerdfont"
 
 [layout]
 # Panel widths as % of total terminal width.
