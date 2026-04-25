@@ -60,7 +60,10 @@ func basePalette(theme config.Theme) views.Palette {
 			FgDim:   lipgloss.Color("#8893A8"),
 			FgMuted: lipgloss.Color("#677084"),
 
-			Border: lipgloss.Color("#3B4252"),
+			// Border must contrast with BgPanel (#3B4252); using the same
+			// value would make every separator and rounded box invisible.
+			// Nord polar-night-3 (#4C566A) is the canonical subtle-line shade.
+			Border: lipgloss.Color("#4C566A"),
 
 			Accent:       lipgloss.Color("#88C0D0"),
 			Cyan:         lipgloss.Color("#8FBCBB"),

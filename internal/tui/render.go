@@ -41,6 +41,13 @@ func (m Model) renderMain() string {
 	hdr := m.renderHeader(p)
 	bdy := clampToHeight(m.renderBody(p, bodyH, centerW), bodyH)
 	sts := views.StatusBar(p, len(m.commands), m.makefilePath, m.width)
+	// No explicit frame Background: the cast UI is intentionally
+	// "transparent" over the terminal so structural cells (panel
+	// interiors, dividers, header gaps, hint rows) inherit the user's
+	// terminal background. Explicit bg is reserved for purposeful
+	// emphasis only — selected items (BgSelected), shortcut badges,
+	// and tag chips. Anything else MUST stay bg-less so the theme
+	// composes cleanly with whatever terminal palette the user runs.
 	full := hdr + "\n" + bdy + "\n" + sts
 
 	if m.showPicker {
@@ -145,7 +152,7 @@ func (m Model) renderHeader(p views.Palette) string {
 	if leftW < 0 {
 		leftW = 0
 	}
-	rowStyle := lipgloss.NewStyle().Width(leftW).Background(p.BgPanel).Padding(0, 1)
+	rowStyle := lipgloss.NewStyle().Width(leftW).Padding(0, 1)
 	leftBlock := rowStyle.Render("") + "\n" +
 		rowStyle.Render(leftContent) + "\n" +
 		rowStyle.Render("")
@@ -166,9 +173,10 @@ func (m Model) renderModePill(p views.Palette) string {
 		fg = p.Orange
 	}
 	inner := lipgloss.NewStyle().Foreground(fg).Bold(true).
-		Background(p.BgSelected).Padding(0, 1).Render("⛓ " + label)
+		Padding(0, 1).Render("⛓ " + label)
+	// No bg on the pill — only the rounded border + colored label define
+	// it visually, so the pill stays consistent with the terminal's bg.
 	return lipgloss.NewStyle().
-		Background(p.BgDeep).
 		Border(lipgloss.RoundedBorder()).BorderForeground(p.Border).
 		Padding(0, 1).
 		Render(inner)
@@ -196,10 +204,14 @@ func (m Model) renderEnvPill(p views.Palette) string {
 		label string
 		color color.Color
 	}
+	// Pull from the active palette so each theme's env pill matches the rest
+	// of the UI (Nord uses muted polar tones, Catppuccin uses pastel mocha,
+	// Dracula uses neon). Hardcoded hex would force one theme's flavour
+	// onto the other two.
 	btns := []envBtn{
-		{"DEV", lipgloss.Color("#A6E3A1")},
-		{"STG", lipgloss.Color("#FAB387")},
-		{"PRD", lipgloss.Color("#F38BA8")},
+		{"DEV", p.Green},
+		{"STG", p.Orange},
+		{"PRD", p.Red},
 	}
 
 	var parts []string
@@ -207,7 +219,7 @@ func (m Model) renderEnvPill(p views.Palette) string {
 		if int(m.env) == i {
 			parts = append(parts,
 				lipgloss.NewStyle().Foreground(b.color).Bold(true).
-					Background(p.BgSelected).Padding(0, 1).
+					Padding(0, 1).
 					Render("● "+b.label))
 		} else {
 			parts = append(parts,
@@ -217,8 +229,9 @@ func (m Model) renderEnvPill(p views.Palette) string {
 	}
 
 	inner := strings.Join(parts, "")
+	// Same as renderModePill: no bg, just rounded border + colored
+	// indicators inside.
 	return lipgloss.NewStyle().
-		Background(p.BgDeep).
 		Border(lipgloss.RoundedBorder()).BorderForeground(p.Border).
 		Padding(0, 1).
 		Render(inner)
@@ -286,7 +299,9 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 		Height:      bodyH,
 	})
 
-	divStyle := views.Style(p.Border, false)
+	// Dividers render bg-less so they sit directly on the terminal's
+	// background — same as every other structural cell.
+	divStyle := lipgloss.NewStyle().Foreground(p.Border)
 	divCol := divStyle.Render(strings.Repeat("│\n", bodyH-1) + "│")
 
 	if !m.showCenter {
@@ -336,7 +351,9 @@ func (m Model) renderEnvBody(p views.Palette, bodyH, totalW int) string {
 		Height:      bodyH,
 	})
 
-	divStyle := views.Style(p.Border, false)
+	// Dividers render bg-less so they sit directly on the terminal's
+	// background — same as every other structural cell.
+	divStyle := lipgloss.NewStyle().Foreground(p.Border)
 	divCol := divStyle.Render(strings.Repeat("│\n", bodyH-1) + "│")
 
 	if !m.showCenter {

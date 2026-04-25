@@ -36,14 +36,13 @@ func Commands(p Palette, props CommandsProps) string {
 	}
 	preview := renderMakefilePreview(p, props, previewH)
 	return lipgloss.NewStyle().Width(props.Width).Height(props.Height).
-		Background(p.BgDeep).
 		Render(hdr + "\n" + preview)
 }
 
 func renderCommandHeader(p Palette, props CommandsProps) (string, int) {
 	w := props.Width
 	if props.Cmd == nil {
-		noCmd := lipgloss.NewStyle().Width(w).Background(p.BgPanel).
+		noCmd := lipgloss.NewStyle().Width(w).
 			Padding(1, 2).Foreground(p.FgDim).Render("no commands")
 		return noCmd + "\n" + SepLine(p, w), lipgloss.Height(noCmd) + 1
 	}
@@ -100,7 +99,7 @@ func renderCommandHeader(p Palette, props CommandsProps) (string, int) {
 
 	dollar := Style(p.FgDim, false).Render("$ ")
 	makeCmd := Style(p.Cyan, false).Render("make " + cmd.Name)
-	cmdBox := lipgloss.NewStyle().Background(p.BgDeep).Padding(0, 1).Render(dollar + makeCmd)
+	cmdBox := lipgloss.NewStyle().Padding(0, 1).Render(dollar + makeCmd)
 
 	var runBtn string
 	if props.Running {
@@ -149,19 +148,19 @@ func renderCommandHeader(p Palette, props CommandsProps) (string, int) {
 	lines = append(lines, SepLine(p, w))
 
 	content := strings.Join(lines, "\n")
-	rendered := lipgloss.NewStyle().Width(w).Background(p.BgPanel).Render(content)
+	rendered := lipgloss.NewStyle().Width(w).Render(content)
 	return rendered, len(lines)
 }
 
 func renderMakefilePreview(p Palette, props CommandsProps, h int) string {
 	w := props.Width
 	if len(props.MakefileLines) == 0 {
-		return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgDeep).
+		return lipgloss.NewStyle().Width(w).Height(h).
 			Padding(1, 2).Foreground(p.FgDim).
 			Render("no makefile loaded")
 	}
 
-	pathRow := lipgloss.NewStyle().Width(w).Padding(0, 2).Background(p.BgDeep).
+	pathRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
 		Render(Style(p.FgDim, false).Render(props.MakefilePath) + "  " +
 			Style(p.FgMuted, false).Render(fmt.Sprintf("%d lines", len(props.MakefileLines))))
 
@@ -187,7 +186,7 @@ func renderMakefilePreview(p Palette, props CommandsProps, h int) string {
 	}
 
 	code := strings.Join(codeLines, "\n")
-	preview := lipgloss.NewStyle().Width(w).Height(codeH).Background(p.BgDeep).Render(code)
+	preview := lipgloss.NewStyle().Width(w).Height(codeH).Render(code)
 	return pathRow + "\n" + preview
 }
 
@@ -213,13 +212,13 @@ func History(p Palette, props HistoryProps) string {
 
 func renderChainRunsTable(p Palette, runs []db.ChainRunRecord, w, h int) string {
 	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
-		Background(p.BgPanel).Foreground(p.Fg).Bold(true).
+		Foreground(p.Fg).Bold(true).
 		Render("CHAIN HISTORY")
 	if len(runs) == 0 {
 		empty := lipgloss.NewStyle().Width(w).Padding(1, 2).
-			Background(p.BgPanel).Foreground(p.FgDim).
+			Foreground(p.FgDim).
 			Render("no chain runs yet — queue shortcuts while a command is running to create one")
-		return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).
+		return lipgloss.NewStyle().Width(w).Height(h).
 			Render(titleRow + "\n" + empty)
 	}
 	headers := []string{"", "COMMANDS", "STEPS", "DURATION", "STARTED"}
@@ -260,8 +259,8 @@ func renderChainRunsTable(p Palette, runs []db.ChainRunRecord, w, h int) string 
 				return s.Foreground(p.FgMuted)
 			}
 		})
-	body := lipgloss.NewStyle().Padding(0, 2).Background(p.BgPanel).Render(tbl.Render())
-	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).
+	body := lipgloss.NewStyle().Padding(0, 2).Render(tbl.Render())
+	return lipgloss.NewStyle().Width(w).Height(h).
 		Render(titleRow + "\n" + body)
 }
 
@@ -277,13 +276,13 @@ func formatChainDuration(d time.Duration) string {
 
 func renderRunsTable(p Palette, records []db.Run, cmds []source.Command, w, h int) string {
 	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
-		Background(p.BgPanel).Foreground(p.Fg).Bold(true).
+		Foreground(p.Fg).Bold(true).
 		Render("HISTORY")
 
 	if len(records) == 0 {
 		empty := lipgloss.NewStyle().Width(w).Padding(1, 2).
-			Background(p.BgPanel).Foreground(p.FgDim).Render("no history yet")
-		return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).
+			Foreground(p.FgDim).Render("no history yet")
+		return lipgloss.NewStyle().Width(w).Height(h).
 			Render(titleRow + "\n" + empty)
 	}
 
@@ -349,8 +348,8 @@ func renderRunsTable(p Palette, records []db.Run, cmds []source.Command, w, h in
 			return s
 		})
 
-	body := lipgloss.NewStyle().Padding(0, 2).Background(p.BgPanel).Render(tbl.Render())
-	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).
+	body := lipgloss.NewStyle().Padding(0, 2).Render(tbl.Render())
+	return lipgloss.NewStyle().Width(w).Height(h).
 		Render(titleRow + "\n" + body)
 }
 

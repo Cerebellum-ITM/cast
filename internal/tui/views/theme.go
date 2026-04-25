@@ -55,7 +55,7 @@ func Theme(p Palette, props ThemeProps) string {
 
 	body := strings.Join(rows, "\n")
 	return lipgloss.NewStyle().Width(w).Height(h).
-		Background(p.BgPanel).Padding(1, 2).Render(body)
+		Padding(1, 2).Render(body)
 }
 
 // renderThemeRow draws a single theme card: cursor + label + active marker +

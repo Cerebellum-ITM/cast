@@ -89,7 +89,7 @@ func EnvSidebar(p Palette, props EnvSidebarProps) string {
 	)
 
 	content := strings.Join(rows, "\n")
-	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).Render(content)
+	return lipgloss.NewStyle().Width(w).Height(h).Render(content)
 }
 
 func renderEnvSearch(p Palette, props EnvSidebarProps, w int) string {
@@ -106,7 +106,7 @@ func renderEnvSearch(p Palette, props EnvSidebarProps, w int) string {
 		}
 	}
 
-	return lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel).
+	return lipgloss.NewStyle().Width(w).Padding(0, 1).
 		Render(icon + inputStr)
 }
 
@@ -116,7 +116,7 @@ func renderEnvVarList(p Palette, props EnvSidebarProps, w, listH int) []string {
 
 	rows := make([]string, listH)
 	for i := range rows {
-		rows[i] = lipgloss.NewStyle().Width(w).Background(p.BgPanel).Render("")
+		rows[i] = lipgloss.NewStyle().Width(w).Render("")
 	}
 
 	start := 0
@@ -202,7 +202,7 @@ func renderEnvSidebarHints(p Palette, w int, focused bool) string {
 	hints := [][2]string{
 		{"↑↓", "nav"}, {"⏎", "edit"}, {"ctrl+a", "new"}, {"ctrl+s", "sensitive"}, {"s", "secrets"},
 	}
-	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel)
+	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1)
 
 	var lines []string
 	var rowParts []string
@@ -307,13 +307,13 @@ func centeredHints(p Palette, w int, editMode bool) string {
 			Style(p.FgMuted, false).Render("[ctrl+s]") +
 			Style(p.FgMuted, false).Render(" sensitive")
 	}
-	return lipgloss.NewStyle().Width(w).Background(p.BgPanel).Align(lipgloss.Center).Render(content)
+	return lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(content)
 }
 
 // EnvDetail renders the top portion of the center panel.
 func EnvDetail(p Palette, props EnvDetailProps) string {
 	w, h := props.Width, props.Height
-	base := lipgloss.NewStyle().Width(w).Background(p.BgPanel)
+	base := lipgloss.NewStyle().Width(w)
 
 	hdr := envDetailHeader(p, props)
 
@@ -416,7 +416,7 @@ func EnvDetail(p Palette, props EnvDetailProps) string {
 	}
 	valueBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).BorderForeground(p.Border).
-		Background(p.BgDeep).Padding(0, 1).
+		Background(p.BgPanel).Padding(0, 1).
 		MarginLeft(2).
 		Width(boxInnerW).
 		Render(displayVal)
@@ -438,13 +438,13 @@ func EnvDetail(p Palette, props EnvDetailProps) string {
 // syntax-highlighted .env file content.
 func EnvFilePreview(p Palette, props EnvFilePreviewProps) string {
 	w, h := props.Width, props.Height
-	base := lipgloss.NewStyle().Width(w).Background(p.BgDeep)
+	base := lipgloss.NewStyle().Width(w)
 
 	if len(props.Lines) == 0 {
 		return base.Height(h).Padding(1, 2).Foreground(p.FgDim).Render("no .env file loaded")
 	}
 
-	pathRow := lipgloss.NewStyle().Width(w).Padding(0, 2).Background(p.BgDeep).
+	pathRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
 		Render(Style(p.FgDim, false).Render(props.Filename) + "  " +
 			Style(p.FgMuted, false).Render(fmt.Sprintf("%d lines", len(props.Lines))))
 
@@ -477,7 +477,7 @@ func EnvHistoryPanel(p Palette, props EnvHistoryProps) string {
 	w, h := props.Width, props.Height
 
 	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
-		Background(p.BgPanel).Foreground(p.Fg).Bold(true).
+		Foreground(p.Fg).Bold(true).
 		Render("ENV HISTORY")
 	sep := SepLine(p, w)
 	hint := renderEnvHistoryHints(p, w, props.Focused)
@@ -493,7 +493,7 @@ func EnvHistoryPanel(p Palette, props EnvHistoryProps) string {
 	var entriesStr string
 	if len(props.Changes) == 0 {
 		entriesStr = lipgloss.NewStyle().Width(w).Padding(1, 2).
-			Background(p.BgPanel).Foreground(p.FgDim).
+			Foreground(p.FgDim).
 			Render("no changes recorded yet")
 	} else {
 		start := 0
@@ -560,7 +560,7 @@ func EnvHistoryPanel(p Palette, props EnvHistoryProps) string {
 	content := titleRow + "\n" + sep + "\n" +
 		entriesStr + "\n" +
 		SepLine(p, w) + "\n" + hint
-	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).Render(content)
+	return lipgloss.NewStyle().Width(w).Height(h).Render(content)
 }
 
 func renderEnvHistoryHints(p Palette, w int, focused bool) string {
@@ -570,7 +570,7 @@ func renderEnvHistoryHints(p Palette, w int, focused bool) string {
 	}
 
 	hints := [][2]string{{"↑↓", "nav"}, {"r", "restore"}, {"tab", "switch"}}
-	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel)
+	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1)
 
 	var parts []string
 	for _, h := range hints {

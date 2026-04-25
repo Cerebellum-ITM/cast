@@ -47,27 +47,27 @@ func ExpandedOutput(p Palette, lines []string, offset, popupW, popupH int, cmd s
 	if gap < 1 {
 		gap = 1
 	}
-	titleRow := lipgloss.NewStyle().Width(innerW).Background(p.BgPanel).
+	titleRow := lipgloss.NewStyle().Width(innerW).
 		Render(titleText + strings.Repeat(" ", gap) + scrollText)
 
 	sep := SepLine(p, innerW)
 
 	// ── Content rows ─────────────────────────────────────────────────────────
 	rows := make([]string, visH)
-	emptyRow := lipgloss.NewStyle().Width(innerW).Background(p.BgDeep).Render("")
+	emptyRow := lipgloss.NewStyle().Width(innerW).Render("")
 	for i := range rows {
 		rows[i] = emptyRow
 	}
 	for i := 0; i < visH && offset+i < total; i++ {
 		colored := colorizeLogLine(p, lines[offset+i])
 		line := ansi.Truncate(colored, innerW, "")
-		rows[i] = lipgloss.NewStyle().Width(innerW).Background(p.BgDeep).Render(line)
+		rows[i] = lipgloss.NewStyle().Width(innerW).Render(line)
 	}
 
 	// ── Hint row ─────────────────────────────────────────────────────────────
 	hintText := "↑↓ / j k    pgup pgdn    g G top/end    ctrl+e  esc  close"
 	hintText = ansi.Truncate(hintText, innerW, "")
-	hintRow := lipgloss.NewStyle().Width(innerW).Background(p.BgPanel).
+	hintRow := lipgloss.NewStyle().Width(innerW).
 		Render(Style(p.FgMuted, false).Render(hintText))
 
 	inner := titleRow + "\n" + sep + "\n" +
@@ -112,13 +112,13 @@ func ExpandedMakefile(p Palette, lines []string, offset, popupW, popupH int, cmd
 	if gap < 1 {
 		gap = 1
 	}
-	titleRow := lipgloss.NewStyle().Width(innerW).Background(p.BgPanel).
+	titleRow := lipgloss.NewStyle().Width(innerW).
 		Render(titleText + strings.Repeat(" ", gap) + scrollText)
 
 	sep := SepLine(p, innerW)
 
 	rows := make([]string, visH)
-	emptyRow := lipgloss.NewStyle().Width(innerW).Background(p.BgDeep).Render("")
+	emptyRow := lipgloss.NewStyle().Width(innerW).Render("")
 	for i := range rows {
 		rows[i] = emptyRow
 	}
@@ -128,12 +128,12 @@ func ExpandedMakefile(p Palette, lines []string, offset, popupW, popupH int, cmd
 			Render(fmt.Sprintf("%3d", offset+i+1))
 		content := "  " + lineNum + "  " + HighlightMakefileLine(p, rawLine)
 		line := ansi.Truncate(content, innerW, "")
-		rows[i] = lipgloss.NewStyle().Width(innerW).Background(p.BgDeep).Render(line)
+		rows[i] = lipgloss.NewStyle().Width(innerW).Render(line)
 	}
 
 	hintText := "↑↓ / j k    pgup pgdn    g G top/end    ctrl+o  esc  close"
 	hintText = ansi.Truncate(hintText, innerW, "")
-	hintRow := lipgloss.NewStyle().Width(innerW).Background(p.BgPanel).
+	hintRow := lipgloss.NewStyle().Width(innerW).
 		Render(Style(p.FgMuted, false).Render(hintText))
 
 	inner := titleRow + "\n" + sep + "\n" +

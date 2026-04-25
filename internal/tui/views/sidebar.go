@@ -96,7 +96,7 @@ func Sidebar(p Palette, props SidebarProps) string {
 	rows = append(rows, renderHintsRow(p, w, props.Mode, props.ChainBuilder))
 
 	content := strings.Join(rows, "\n")
-	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).Render(content)
+	return lipgloss.NewStyle().Width(w).Height(h).Render(content)
 }
 
 // renderRerunCard renders the persistent "last command" card pinned above
@@ -106,10 +106,6 @@ func Sidebar(p Palette, props SidebarProps) string {
 // sidebar stays vertically aligned.
 func renderRerunCard(p Palette, cmds []string, isPick, focused bool, w int) []string {
 	contentW := w - 1
-	bg := p.BgPanel
-	if focused {
-		bg = p.BgSelected
-	}
 	accent := p.Yellow
 
 	badge := lipgloss.NewStyle().
@@ -141,13 +137,14 @@ func renderRerunCard(p Palette, cmds []string, isPick, focused bool, w int) []st
 
 	var rowStyle lipgloss.Style
 	if focused {
-		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+		rowStyle = lipgloss.NewStyle().Width(contentW).
+			Background(p.BgSelected).
 			BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(accent).BorderBackground(bg)
+			BorderForeground(accent).BorderBackground(p.BgSelected)
 	} else {
-		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+		rowStyle = lipgloss.NewStyle().Width(contentW).
 			BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(accent).BorderBackground(bg)
+			BorderForeground(accent)
 	}
 	return []string{rowStyle.Render(row1), rowStyle.Render(row2)}
 }
@@ -157,10 +154,10 @@ func renderRerunCard(p Palette, cmds []string, isPick, focused bool, w int) []st
 // are faint, the running one is bold with a ▶ marker.
 func renderQueueBlock(p Palette, steps []string, current, w int) []string {
 	title := lipgloss.NewStyle().Width(w).Padding(0, 1).
-		Background(p.BgPanel).Foreground(p.Accent).Bold(true).
+		Foreground(p.Accent).Bold(true).
 		Render("CHAIN (" + itoa(len(steps)) + ")")
 	rows := []string{title}
-	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel)
+	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1)
 	avail := w - 2 - 4
 	if avail < 4 {
 		avail = 4
@@ -229,7 +226,7 @@ func renderSearchRow(p Palette, props SidebarProps, w int) string {
 		}
 	}
 
-	return lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel).
+	return lipgloss.NewStyle().Width(w).Padding(0, 1).
 		Render(icon + inputStr)
 }
 
@@ -244,7 +241,7 @@ func renderCommandList(p Palette, props SidebarProps, w, listH int) []string {
 
 	rows := make([]string, listH)
 	for i := range rows {
-		rows[i] = lipgloss.NewStyle().Width(w).Background(p.BgPanel).Render("")
+		rows[i] = lipgloss.NewStyle().Width(w).Render("")
 	}
 
 	slot := 0
@@ -284,10 +281,10 @@ func renderChainList(p Palette, props SidebarProps, w, listH int) []string {
 	maxItems := listH / rowsPerItem
 	rows := make([]string, listH)
 	for i := range rows {
-		rows[i] = lipgloss.NewStyle().Width(w).Background(p.BgPanel).Render("")
+		rows[i] = lipgloss.NewStyle().Width(w).Render("")
 	}
 	if len(props.Chains) == 0 {
-		empty := lipgloss.NewStyle().Width(w-2).Padding(1, 1).Background(p.BgPanel).
+		empty := lipgloss.NewStyle().Width(w-2).Padding(1, 1).
 			Foreground(p.FgDim).
 			Render("no chains yet · queue targets while one runs to create one")
 		rows[0] = empty
@@ -308,9 +305,9 @@ func renderChainList(p Palette, props SidebarProps, w, listH int) []string {
 }
 
 func renderChainCard(p Palette, s db.SequenceSummary, selected bool, w int) (string, string) {
-	bg, fg := p.BgPanel, p.FgDim
+	fg := p.FgDim
 	if selected {
-		bg, fg = p.BgSelected, p.Fg
+		fg = p.Fg
 	}
 	contentW := w - 1
 	avail := contentW - 2
@@ -343,21 +340,21 @@ func renderChainCard(p Palette, s db.SequenceSummary, selected bool, w int) (str
 
 	var rowStyle lipgloss.Style
 	if selected {
-		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+		rowStyle = lipgloss.NewStyle().Width(contentW).Background(p.BgSelected).
 			BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(p.Accent).BorderBackground(bg)
+			BorderForeground(p.Accent).BorderBackground(p.BgSelected)
 	} else {
-		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+		rowStyle = lipgloss.NewStyle().Width(contentW).
 			BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(p.Border).BorderBackground(bg)
+			BorderForeground(p.Border)
 	}
 	return rowStyle.Render(" " + name), rowStyle.Render(" " + sub)
 }
 
 func renderCommandCard(p Palette, cmd source.Command, selected bool, w int, chainMark string) (string, string) {
-	bg, fg := p.BgPanel, p.FgDim
+	fg := p.FgDim
 	if selected {
-		bg, fg = p.BgSelected, p.Fg
+		fg = p.Fg
 	}
 
 	badge := RenderKeyBadge(p, cmd.Shortcut)
@@ -423,13 +420,13 @@ func renderCommandCard(p Palette, cmd source.Command, selected bool, w int, chai
 
 	var rowStyle lipgloss.Style
 	if selected {
-		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+		rowStyle = lipgloss.NewStyle().Width(contentW).Background(p.BgSelected).
 			BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(p.Accent).BorderBackground(bg)
+			BorderForeground(p.Accent).BorderBackground(p.BgSelected)
 	} else {
-		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+		rowStyle = lipgloss.NewStyle().Width(contentW).
 			BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(p.Border).BorderBackground(bg)
+			BorderForeground(p.Border)
 	}
 
 	return rowStyle.Render(row1Content), rowStyle.Render(row2Content)
@@ -446,7 +443,7 @@ func renderHintsRow(p Palette, w int, mode int, builder bool) string {
 		hints = [][2]string{{"↑↓", "nav"}, {"⏎", "run"}, {"/", "search"}, {"ctrl+s", "mode"}, {"ctrl+a", "chain"}, {"q", "quit"}}
 	}
 	avail := w - 2
-	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel)
+	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1)
 
 	var lines []string
 	var rowParts []string

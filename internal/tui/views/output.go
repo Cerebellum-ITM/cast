@@ -62,7 +62,7 @@ func Output(p Palette, props OutputProps) string {
 	if hGap < 0 {
 		hGap = 0
 	}
-	headerRow := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel).
+	headerRow := lipgloss.NewStyle().Width(w).Padding(0, 1).
 		Render(outputLabel + strings.Repeat(" ", hGap) + statusStr)
 	sepColor := p.Border
 	if props.Streaming {
@@ -102,7 +102,7 @@ func Output(p Palette, props OutputProps) string {
 	}
 	termRows := renderTermRows(p, props.Lines, w, termH)
 
-	emptyRow := lipgloss.NewStyle().Width(w).Background(p.BgDeep).Render("")
+	emptyRow := lipgloss.NewStyle().Width(w).Render("")
 	allRows := []string{headerRow, sep}
 	if props.Running || props.HasLastRun {
 		allRows = append(allRows, progressRow, emptyRow)
@@ -111,7 +111,7 @@ func Output(p Palette, props OutputProps) string {
 	allRows = append(allRows, hintSep, hintRow, hintSep)
 	allRows = append(allRows, recentRows...)
 
-	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgDeep).
+	return lipgloss.NewStyle().Width(w).Height(h).
 		Render(strings.Join(allRows, "\n"))
 }
 
@@ -119,7 +119,7 @@ func Output(p Palette, props OutputProps) string {
 // key glyphs followed by a dim label, laid out on a single line capped to w.
 func renderOutputHintsRow(p Palette, w int) string {
 	hints := [][2]string{{"ctrl+e", "expand"}, {"ctrl+c", "stop"}}
-	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel)
+	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1)
 	avail := w - 2
 
 	var parts []string
@@ -145,11 +145,11 @@ func renderOutputHintsRow(p Palette, w int) string {
 func renderTermRows(p Palette, output []string, w, h int) []string {
 	rows := make([]string, h)
 	for i := range rows {
-		rows[i] = lipgloss.NewStyle().Width(w).Background(p.BgDeep).Render("")
+		rows[i] = lipgloss.NewStyle().Width(w).Render("")
 	}
 
 	if len(output) == 0 {
-		rows[0] = lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgDeep).
+		rows[0] = lipgloss.NewStyle().Width(w).Padding(0, 1).
 			Render(Style(p.FgDim, false).Render("run a command to see output…"))
 		return rows
 	}
@@ -164,14 +164,14 @@ func renderTermRows(p Palette, output []string, w, h int) []string {
 			break
 		}
 		line := ansi.Truncate(colorizeLogLine(p, l), contentW, "")
-		rows[i] = lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgDeep).
+		rows[i] = lipgloss.NewStyle().Width(w).Padding(0, 1).
 			Render(line)
 	}
 	return rows
 }
 
 func renderRecentRows(p Palette, history []db.Run, w, max int) []string {
-	label := lipgloss.NewStyle().Width(w).Padding(0, 1).Background(p.BgPanel).
+	label := lipgloss.NewStyle().Width(w).Padding(0, 1).
 		Foreground(p.Fg).Bold(true).Render("RECENT")
 	// sep := SepLine(p, w)
 
@@ -186,10 +186,10 @@ func renderRecentRows(p Palette, history []db.Run, w, max int) []string {
 		dur := Style(p.FgDim, false).Render(r.DurationStr())
 		ts := Style(p.FgDim, false).Render(r.TimeStr())
 		rows = append(rows, lipgloss.NewStyle().Width(w).Padding(0, 1).
-			Background(p.BgPanel).Render(dot+" "+name+"  "+dur+"  "+ts))
+			Render(dot+" "+name+"  "+dur+"  "+ts))
 	}
 	for len(rows) < 2+max {
-		rows = append(rows, lipgloss.NewStyle().Width(w).Background(p.BgPanel).Render(""))
+		rows = append(rows, lipgloss.NewStyle().Width(w).Render(""))
 	}
 	return rows
 }
