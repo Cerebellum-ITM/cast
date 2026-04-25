@@ -156,9 +156,32 @@ type Model struct {
 	runProgress float64
 	output      []string
 	showConfirm bool
-	lastRunCmd  string
+	lastRunCmd  string // current/most-recent step name (used by output header & history)
+	// lastRunCommands is the ordered list of targets dispatched on the user's
+	// most recent action: one name for a single run, ≥2 for a chain. This is
+	// what the rerun card replays; lastRunCmd is per-step and not safe for
+	// rerunning a chain (it gets overwritten as steps progress).
+	lastRunCommands []string
+	// lastRunExtraVars caches the picker-resolved KEY=VAL pairs from the most
+	// recent dispatch so RerunLast can skip the picker and reuse them. Empty
+	// for plain (non-pick) commands and for chains (chains skip the picker).
+	lastRunExtraVars []string
+	// pendingRerunExtras is set when a rerun needs to traverse the confirm
+	// modal: stash the extras here so the modal's "yes" path can dispatch
+	// with them instead of re-running through triggerRun (which would reopen
+	// the picker).
+	pendingRerunExtras []string
+	// pendingRerunChain holds the chain target list when a chain-rerun has
+	// to traverse the confirm modal. Yes-path dispatches via
+	// startChainFromCommands; no-path clears it.
+	pendingRerunChain  []string
 	lastRunOK   bool
 	hasLastRun  bool
+	// rerunFocused is true when the pinned "rerun" card at the top of the
+	// sidebar holds keyboard focus. Up from filtered[0] enters this mode;
+	// Down leaves it. Independent of m.selected so command indexing across
+	// the rest of the model stays untouched.
+	rerunFocused bool
 	streamCh    <-chan tea.Msg
 	runCancel   context.CancelFunc // non-nil while a run is active
 	streaming   bool               // current run is a long-lived log stream
@@ -263,8 +286,22 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		}
 	}
 
+	var lastRunCmds []string
+	var lastRunExtras []string
+	if database != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if lr, err := database.GetLastRun(ctx, cfg.SourceDir); err == nil && lr != nil {
+			lastRunCmds = lr.Commands
+			lastRunExtras = lr.ExtraVars
+		}
+		cancel()
+	}
+
 	return Model{
 		state:           StateSplash,
+		lastRunCommands: lastRunCmds,
+		lastRunExtraVars: lastRunExtras,
+		hasLastRun:      len(lastRunCmds) > 0,
 		keys:            DefaultKeyMap,
 		splashModel:     splash.New(cfg.Theme, cfg.Env),
 		commands:        commands,
@@ -753,28 +790,45 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case k == m.keys.TabPrev:
 		m.activeTab = (m.activeTab + 3) % 4
 	case k == m.keys.Up:
-		if m.selected > 0 {
+		if m.rerunFocused {
+			// already at the very top
+		} else if m.selected == 0 && m.hasRerunCard() {
+			m.rerunFocused = true
+		} else if m.selected > 0 {
 			m.selected--
 		}
 	case k == m.keys.Down:
-		if m.selected < len(m.filtered)-1 {
+		if m.rerunFocused {
+			m.rerunFocused = false
+		} else if m.selected < len(m.filtered)-1 {
 			m.selected++
 		}
 	case k == m.keys.Top:
-		m.selected = 0
+		if m.hasRerunCard() {
+			m.rerunFocused = true
+		} else {
+			m.selected = 0
+		}
 	case k == m.keys.Bottom:
+		m.rerunFocused = false
 		if len(m.filtered) > 0 {
 			m.selected = len(m.filtered) - 1
 		}
 	case k == m.keys.Search:
 		m.searchInput.Focus()
 		return m, textinput.Blink
-	case k == m.keys.Run, k == m.keys.RunAlt:
-		return m.triggerRun()
 	case k == m.keys.RerunLast:
-		if len(m.history) > 0 && !m.running {
-			return m.runByName(m.history[0].Command)
+		// Must come before Run/RunAlt: when both share a binding (default
+		// ctrl+r), the rerun semantic wins so picker-typed commands don't
+		// reopen the picker on Ctrl+R.
+		if !m.running {
+			return m.rerunLast()
 		}
+	case k == m.keys.Run, k == m.keys.RunAlt:
+		if m.rerunFocused {
+			return m.rerunLast()
+		}
+		return m.triggerRun()
 	case k == m.keys.ToggleSecrets:
 		if m.activeTab == TabEnv {
 			m.showSecrets = !m.showSecrets
@@ -852,6 +906,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// hasRerunCard reports whether the pinned rerun card should be visible at
+// the top of the sidebar. Hidden in chain mode (where the sidebar lists
+// chains, not commands) and on tabs other than commands.
+func (m Model) hasRerunCard() bool {
+	return m.activeTab == TabCommands && m.mode == ModeSingle && m.hasLastRun && len(m.lastRunCommands) > 0
 }
 
 func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1120,8 +1181,26 @@ func (m Model) handleConfirmModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "n":
 		m.showConfirm = false
+		m.pendingRerunExtras = nil
+		m.pendingRerunChain = nil
 	case "enter", "y":
 		m.showConfirm = false
+		// Chain rerun: dispatch the saved chain end-to-end.
+		if len(m.pendingRerunChain) > 0 {
+			cmds := m.pendingRerunChain
+			m.pendingRerunChain = nil
+			return m.startChainFromCommands(cmds)
+		}
+		// Single-command rerun: pendingRerunExtras is non-nil exactly when
+		// the modal was opened from rerunLast, so the picker must not
+		// reopen. Plain triggerRun → confirm leaves it nil and falls
+		// through to the normal dispatch.
+		if m.pendingRerunExtras != nil && len(m.filtered) > 0 {
+			extras := m.pendingRerunExtras
+			m.pendingRerunExtras = nil
+			cmdMeta := m.filtered[m.selected]
+			return m.startSingleRun(cmdMeta, extras)
+		}
 		return m.dispatchRun()
 	}
 	return m, nil
@@ -1659,7 +1738,30 @@ func (m Model) startSingleRun(cmdMeta source.Command, extraVars []string) (tea.M
 	m.chainStepIdx = 0
 	m.chainRunIDs = m.chainRunIDs[:0]
 	m.chainStartAt = time.Now()
+	// Cache the resolved picks so RerunLast can replay this exact invocation
+	// without reopening the picker. nil extras (plain command) overwrite any
+	// previously cached extras from a different command.
+	m.lastRunExtraVars = append(m.lastRunExtraVars[:0], extraVars...)
+	m.lastRunCommands = []string{cmdMeta.Name}
+	m.hasLastRun = true
+	m.persistLastRun([]string{cmdMeta.Name}, extraVars)
 	return m.dispatchCommand(cmdMeta, extraVars)
+}
+
+// persistLastRun upserts the rerun target into the project_last_runs table.
+// Best-effort: any DB error is swallowed so a transient failure can never
+// block execution. The in-memory cache (m.lastRunCommands / extras) is
+// already authoritative for the current session.
+func (m Model) persistLastRun(commands, extraVars []string) {
+	if m.db == nil || m.makefileDir == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = m.db.UpsertLastRun(ctx, m.makefileDir, db.LastRun{
+		Commands:  append([]string(nil), commands...),
+		ExtraVars: append([]string(nil), extraVars...),
+	})
 }
 
 // dispatchCommand fires the given command as a single step. Caller has
@@ -1805,6 +1907,12 @@ func (m Model) startChainFromCommands(names []string) (tea.Model, tea.Cmd) {
 	m.chainStepIdx = 0
 	m.chainRunIDs = m.chainRunIDs[:0]
 	m.chainStartAt = time.Now()
+	// Persist the full chain as the rerun target so Ctrl+R / sidebar card
+	// replays every step in order. Chains skip the picker, so no ExtraVars.
+	m.lastRunCommands = append([]string(nil), names...)
+	m.lastRunExtraVars = m.lastRunExtraVars[:0]
+	m.hasLastRun = true
+	m.persistLastRun(names, nil)
 	return m.dispatchCommand(*head, nil)
 }
 
@@ -1826,6 +1934,88 @@ func waitNext(ch <-chan tea.Msg) tea.Cmd {
 		}
 		return msg
 	}
+}
+
+// rerunLast replays the most recent dispatch, reusing cached pick selections
+// so the folder picker does not reopen. Falls back to history[0] when no
+// in-memory last-run exists yet (e.g. after the TUI was just launched).
+// Confirmation precedence is preserved: NoConfirm skips the modal, Confirm
+// or non-local env still asks. The modal's yes-path uses pendingRerunExtras
+// to dispatch with the cached vars instead of going through triggerRun.
+func (m Model) rerunLast() (tea.Model, tea.Cmd) {
+	if m.running {
+		return m, nil
+	}
+	cmds := append([]string(nil), m.lastRunCommands...)
+	// Defensive copy: startSingleRun/startChainFromCommands rewrite the
+	// cached slice in place; passing it directly would alias source and dest.
+	extras := append([]string(nil), m.lastRunExtraVars...)
+	if len(cmds) == 0 {
+		if len(m.history) == 0 {
+			return m, nil
+		}
+		cmds = []string{m.history[0].Command}
+		extras = nil
+	}
+
+	// Chain rerun: dispatch the whole sequence. Chains never carry picker
+	// extras (chained steps skip the picker by design), so confirmation
+	// follows the head command's flags and any non-local env still asks.
+	if len(cmds) > 1 {
+		head := m.findCommand(cmds[0])
+		if head == nil {
+			return m, nil
+		}
+		switch {
+		case head.NoConfirm:
+		case head.Confirm, m.env != config.EnvLocal:
+			m.pendingRerunChain = cmds
+			m.showConfirm = true
+			return m, nil
+		}
+		return m.startChainFromCommands(cmds)
+	}
+
+	name := cmds[0]
+	cmd := m.findCommand(name)
+	if cmd == nil {
+		return m, nil
+	}
+	// Mirror selection so the confirm modal labels the right command.
+	for i, c := range m.filtered {
+		if c.Name == name {
+			m.selected = i
+			break
+		}
+	}
+	// If the command needs picks and we have nothing cached, fall back to
+	// the regular flow (which opens the picker). This only happens on the
+	// very first rerun after launch when history pre-exists but cache is empty.
+	if len(cmd.Picks) > 0 && len(extras) == 0 {
+		return m.triggerRun()
+	}
+
+	switch {
+	case cmd.NoConfirm:
+	case cmd.Confirm, m.env != config.EnvLocal:
+		m.pendingRerunExtras = append([]string(nil), extras...)
+		m.showConfirm = true
+		return m, nil
+	}
+	return m.startSingleRun(*cmd, extras)
+}
+
+// findCommand returns a copy of the command matching name from m.commands,
+// or nil when not found (e.g. removed from the Makefile after the rerun was
+// recorded).
+func (m Model) findCommand(name string) *source.Command {
+	for i := range m.commands {
+		if m.commands[i].Name == name {
+			c := m.commands[i]
+			return &c
+		}
+	}
+	return nil
 }
 
 func (m Model) runByName(name string) (tea.Model, tea.Cmd) {

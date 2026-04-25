@@ -28,7 +28,7 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err := d.sql.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatalf("count: %v", err)
 	}
-	wantMigrations := 2 // update when new migrations are added
+	wantMigrations := 3 // update when new migrations are added
 	if n != wantMigrations {
 		t.Fatalf("expected %d migration rows, got %d", wantMigrations, n)
 	}

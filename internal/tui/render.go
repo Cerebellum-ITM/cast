@@ -239,20 +239,30 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 		queueCmds = m.chainCommands
 		curStep = m.chainStepIdx
 	}
+	var lastRunCmds []string
+	var lastRunIsPick bool
+	if m.hasRerunCard() {
+		lastRunCmds = m.lastRunCommands
+		// Mark as pick when we have cached extras (only pick commands produce them).
+		lastRunIsPick = len(m.lastRunExtraVars) > 0
+	}
 	sidebar := views.Sidebar(p, views.SidebarProps{
-		Commands:      m.filtered,
-		Selected:      m.selected,
-		Search:        m.searchInput.Value(),
-		SearchFocused: m.searchInput.Focused(),
-		Width:         sbInner,
-		Height:        bodyH,
-		Mode:          int(m.mode),
-		Chains:        m.chains,
-		ChainSel:      m.chainSel,
-		ChainBuilder:  m.chainBuilder,
-		ChainChecked:  m.chainChecked,
-		QueueCommands: queueCmds,
-		CurrentStep:   curStep,
+		Commands:       m.filtered,
+		Selected:       m.selected,
+		Search:         m.searchInput.Value(),
+		SearchFocused:  m.searchInput.Focused(),
+		Width:          sbInner,
+		Height:         bodyH,
+		Mode:           int(m.mode),
+		Chains:         m.chains,
+		ChainSel:       m.chainSel,
+		ChainBuilder:   m.chainBuilder,
+		ChainChecked:   m.chainChecked,
+		QueueCommands:  queueCmds,
+		CurrentStep:    curStep,
+		LastRunCmds:    lastRunCmds,
+		LastRunIsPick:  lastRunIsPick,
+		LastRunFocused: m.rerunFocused,
 	})
 
 	var center string

@@ -188,7 +188,7 @@ needs to display the current build.
   Makefile tag grammar.
 
 Edit `version.Current` in the same commit that introduces the change — never
-in a separate bookkeeping commit. Current: `0.10.0`.
+in a separate bookkeeping commit. Current: `0.13.1`.
 
 ---
 
@@ -250,4 +250,3 @@ on a single topic so future agents can pull in only what they need.
 - **Streaming output**: `runner.StreamRun` exists but is not yet wired; `dispatchRun` uses the sync `runner.Run`. Wire `program.Send` once the program reference is accessible.
 - **History persistence**: `LoadHistory`/`SaveHistory` are implemented but not yet called. Wire in `main.go` (load on start) and `model.go` `RunDoneMsg` handler (save on each run).
 - **TabEnv** (.env viewer) and **TabTheme** (interactive theme picker) are placeholder stubs.
-- **Ctrl+R** re-run last command is a TODO stub in `handleKey`.

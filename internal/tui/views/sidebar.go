@@ -34,6 +34,14 @@ type SidebarProps struct {
 	// the step currently executing.
 	QueueCommands []string
 	CurrentStep   int
+
+	// LastRunCmds is the persisted "rerun" target rendered as a card pinned
+	// at the top of the command list. Single-element slice => single
+	// command; ≥2 elements => chain joined with " › ". Empty disables the
+	// card. Persists across CLI restarts via internal/state.
+	LastRunCmds    []string
+	LastRunIsPick  bool // shows a "(pick)" hint when extras are cached
+	LastRunFocused bool // selection is on the rerun card
 }
 
 // Sidebar renders the left panel: search, command list, and keyboard hints.
@@ -52,9 +60,17 @@ func Sidebar(p Palette, props SidebarProps) string {
 		queueBlock = renderQueueBlock(p, props.QueueCommands, props.CurrentStep, w)
 	}
 
-	listH := h - searchRows - sepRows - hintRows - hintSepR - len(queueBlock)
+	var rerunBlock []string
+	if len(props.LastRunCmds) > 0 && props.Mode == 0 {
+		rerunBlock = renderRerunCard(p, props.LastRunCmds, props.LastRunIsPick, props.LastRunFocused, w)
+	}
+
+	listH := h - searchRows - sepRows - hintRows - hintSepR - len(queueBlock) - len(rerunBlock)
 	if len(queueBlock) > 0 {
 		listH -= 1 // extra sep under queue
+	}
+	if len(rerunBlock) > 0 {
+		listH -= 1 // extra sep under rerun
 	}
 	if listH < 0 {
 		listH = 0
@@ -67,6 +83,10 @@ func Sidebar(p Palette, props SidebarProps) string {
 		rows = append(rows, queueBlock...)
 		rows = append(rows, SepLine(p, w))
 	}
+	if len(rerunBlock) > 0 {
+		rows = append(rows, rerunBlock...)
+		rows = append(rows, SepLine(p, w))
+	}
 	if props.Mode == 1 {
 		rows = append(rows, renderChainList(p, props, w, listH)...)
 	} else {
@@ -77,6 +97,59 @@ func Sidebar(p Palette, props SidebarProps) string {
 
 	content := strings.Join(rows, "\n")
 	return lipgloss.NewStyle().Width(w).Height(h).Background(p.BgPanel).Render(content)
+}
+
+// renderRerunCard renders the persistent "last command" card pinned above
+// the regular command list. Uses the warning/temporary accent (yellow) to
+// signal that this is a synthetic, ephemeral entry and not a Makefile
+// target. Two-row layout matches renderCommandCard so the rest of the
+// sidebar stays vertically aligned.
+func renderRerunCard(p Palette, cmds []string, isPick, focused bool, w int) []string {
+	contentW := w - 1
+	bg := p.BgPanel
+	if focused {
+		bg = p.BgSelected
+	}
+	accent := p.Yellow
+
+	badge := lipgloss.NewStyle().
+		Foreground(p.BgDeep).Bold(true).
+		Background(accent).
+		Padding(0, 1).
+		Render("↻")
+
+	avail := contentW - VisWidth(badge) - 3
+	if avail < 4 {
+		avail = 4
+	}
+	display := strings.Join(cmds, " › ")
+	nameStr := lipgloss.NewStyle().
+		Foreground(p.Fg).Bold(focused).
+		Render(Truncate(display, avail))
+
+	row1 := badge + " " + nameStr
+
+	label := "last command"
+	if len(cmds) > 1 {
+		label = "last chain (" + itoa(len(cmds)) + ")"
+	} else if isPick {
+		label = "last command (pick)"
+	}
+	row2Inner := lipgloss.NewStyle().Foreground(accent).Italic(true).
+		Render(Truncate(label, contentW-2))
+	row2 := "  " + row2Inner
+
+	var rowStyle lipgloss.Style
+	if focused {
+		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+			BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(accent).BorderBackground(bg)
+	} else {
+		rowStyle = lipgloss.NewStyle().Width(contentW).Background(bg).
+			BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(accent).BorderBackground(bg)
+	}
+	return []string{rowStyle.Render(row1), rowStyle.Render(row2)}
 }
 
 // renderQueueBlock renders a compact list of the in-flight chain steps with
