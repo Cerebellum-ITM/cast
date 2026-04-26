@@ -137,10 +137,14 @@ func (m Model) renderMain() string {
 func (m Model) renderHeader(p views.Palette) string {
 	pill := m.renderEnvPill(p)
 	modePill := m.renderModePill(p)
+	noticePill := m.renderNoticePill(p)
 
 	rightW := lipgloss.Width(pill) + lipgloss.Width(modePill)
 	if rightW > 0 {
-		rightW += 1
+		rightW += 1 // gap between mode and env pills
+	}
+	if noticePill != "" {
+		rightW += lipgloss.Width(noticePill) + 1 // pill + gap
 	}
 
 	logo := views.Style(p.Accent, true).Render("⬡ cast")
@@ -157,10 +161,51 @@ func (m Model) renderHeader(p views.Palette) string {
 		rowStyle.Render(leftContent) + "\n" +
 		rowStyle.Render("")
 
-	rightBlock := lipgloss.JoinHorizontal(lipgloss.Top, modePill, " ", pill)
+	// Order on the right edge (left → right): notice · mode · env. The
+	// notice sits closest to the tabs so updates appear "near" the action,
+	// while the env pill stays anchored to the far right where the user
+	// expects it.
+	var rightBlock string
+	if noticePill != "" {
+		rightBlock = lipgloss.JoinHorizontal(lipgloss.Top,
+			noticePill, " ", modePill, " ", pill)
+	} else {
+		rightBlock = lipgloss.JoinHorizontal(lipgloss.Top, modePill, " ", pill)
+	}
 	rows123 := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightBlock)
 	sep := views.Style(p.Border, false).Render(strings.Repeat("─", m.width))
 	return rows123 + "\n" + sep
+}
+
+// renderNoticePill renders the transient toast as a rounded-border pill in
+// the header. Empty notice → empty string so callers can skip layout work.
+// Color matches the kind: success=green, error=red, info=accent.
+func (m Model) renderNoticePill(p views.Palette) string {
+	if m.notice == "" {
+		return ""
+	}
+	fg := p.Accent
+	glyph := "·"
+	switch views.NoticeKind(m.noticeKind) {
+	case views.NoticeSuccess:
+		fg = p.Green
+		glyph = "✓"
+	case views.NoticeError:
+		fg = p.Red
+		glyph = "⚠"
+	}
+	// Cap width so a long notice doesn't shove the env/mode pills off-screen.
+	const maxNoticeW = 48
+	label := m.notice
+	if lipgloss.Width(label) > maxNoticeW {
+		label = views.Truncate(label, maxNoticeW)
+	}
+	inner := lipgloss.NewStyle().Foreground(fg).Bold(true).
+		Padding(0, 1).Render(glyph + " " + label)
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).BorderForeground(p.Border).
+		Padding(0, 1).
+		Render(inner)
 }
 
 // renderModePill renders a two-state badge (SINGLE vs CHAIN) next to the env
@@ -183,7 +228,7 @@ func (m Model) renderModePill(p views.Palette) string {
 }
 
 func (m Model) renderTabs(p views.Palette) string {
-	names := []string{"commands", "history", ".env", "theme"}
+	names := []string{"commands", "history", ".env", "theme", "library"}
 	var parts []string
 	for i, n := range names {
 		if Tab(i) == m.activeTab {
@@ -242,6 +287,9 @@ func (m Model) renderEnvPill(p views.Palette) string {
 func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	if m.activeTab == TabEnv {
 		return m.renderEnvBody(p, bodyH, centerW)
+	}
+	if m.activeTab == TabLibrary {
+		return m.renderLibraryBody(p, bodyH)
 	}
 
 	sbInner := m.sidebarPanelW() - 1
@@ -312,6 +360,34 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 
 // envSidebarW is the wider sidebar used by the .env tab (includes right divider).
 const envSidebarW = 37
+
+// renderLibraryBody draws the library tab full-width: no sidebar, no
+// output panel. Browsing snippets benefits from extra horizontal space
+// for the preview pane, and the commands sidebar / output stream are
+// irrelevant while the user is curating their snippet collection.
+func (m Model) renderLibraryBody(p views.Palette, bodyH int) string {
+	snippets := make([]views.LibrarySnippet, 0, len(m.libraryFiltered))
+	for _, s := range m.libraryFiltered {
+		snippets = append(snippets, views.LibrarySnippet{
+			Name: s.Name,
+			Desc: s.Desc,
+			Tags: s.Tags,
+			Body: s.Body,
+		})
+	}
+	return views.Library(p, views.LibraryProps{
+		Snippets:      snippets,
+		Selected:      m.librarySel,
+		Search:        m.librarySearchInput.Value(),
+		SearchFocused: m.librarySearchInput.Focused(),
+		Error:         m.libraryError,
+		Feedback:      m.libraryFeedback,
+		ConfirmDelete: m.libraryConfirmDelete,
+		IconStyle:     m.iconStyle,
+		Width:         m.width,
+		Height:        bodyH,
+	})
+}
 
 func (m Model) renderEnvBody(p views.Palette, bodyH, totalW int) string {
 	_ = totalW

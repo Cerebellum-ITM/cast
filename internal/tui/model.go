@@ -16,6 +16,7 @@ import (
 
 	"github.com/Cerebellum-ITM/cast/internal/config"
 	"github.com/Cerebellum-ITM/cast/internal/db"
+	"github.com/Cerebellum-ITM/cast/internal/library"
 	"github.com/Cerebellum-ITM/cast/internal/runner"
 	"github.com/Cerebellum-ITM/cast/internal/source"
 	"github.com/Cerebellum-ITM/cast/internal/tui/splash"
@@ -30,7 +31,13 @@ const (
 	TabHistory
 	TabEnv
 	TabTheme
+	TabLibrary
 )
+
+// tabCount is the number of top-level tabs. Tab navigation (Tab / Shift+Tab)
+// uses this to wrap. Bumping this constant + adding a Tab const + updating
+// the names array in renderTabs is the only change required to add a tab.
+const tabCount = 5
 
 // AppState tracks whether we are in the splash or the main TUI.
 type AppState int
@@ -93,6 +100,16 @@ type HistoryErrorMsg struct{ Err error }
 
 // tickMsg drives the progress bar animation.
 type tickMsg struct{}
+
+// clearNoticeMsg is sent by a one-shot tea.Tick to dismiss a status-bar
+// notice after a few seconds. The id field guards against stale clears: if
+// a newer notice has been posted since the timer was scheduled, the new
+// notice's id will differ and the clear is ignored.
+type clearNoticeMsg struct{ id int64 }
+
+// noticeTTL is how long a notice persists before auto-fading. Long enough
+// to read at a glance, short enough to not linger across actions.
+const noticeTTL = 4 * time.Second
 
 // maxOutputLines caps the in-memory output buffer so long streams (hours of
 // docker logs) don't leak memory.
@@ -230,6 +247,26 @@ type Model struct {
 	themeError  string // last error from saving the theme; "" when clean
 	savedTheme  config.Theme // theme value currently persisted in .cast.toml; "" if none
 
+	// Status-bar notice. Set via setNotice() to surface internal events
+	// (snippet saved, theme persisted, etc.) globally — visible from any
+	// tab without needing to switch back to where the action originated.
+	// noticeID is the freshness counter: each new notice bumps it so a
+	// pending auto-clear tick from a previous notice is ignored.
+	notice     string
+	noticeKind int
+	noticeID   int64
+
+	// Library tab state. Snippets are loaded once at New() and refreshed
+	// after insert/extract/delete operations. The fuzzy search input lives
+	// alongside the global search input but is scoped to library only.
+	librarySnippets       []library.Snippet
+	libraryFiltered       []library.Snippet
+	librarySel            int
+	librarySearchInput    textinput.Model
+	libraryError          string // sticky error banner (clear on next action)
+	libraryFeedback       string // sticky success banner ("inserted X")
+	libraryConfirmDelete  bool   // armed by `d`, committed by second `d`/Enter
+
 	// Folder-picker popup. Active when a command tagged with [pick=…] is
 	// triggered. Steps run sequentially; each selection accumulates into
 	// pickerSelections and pickerExtraVars (KEY=VAL). Cancellation aborts the
@@ -301,6 +338,14 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		savedTheme = config.Theme(local.Theme)
 	}
 
+	// Snippets library: cargar al iniciar. Errores no son fatales; un
+	// directorio inexistente o ilegible deja la lista vacía.
+	snippets, _ := library.List()
+
+	libSearch := textinput.New()
+	libSearch.Placeholder = "search snippets…"
+	libSearch.CharLimit = 64
+
 	var lastRunCmds []string
 	var lastRunExtras []string
 	if database != nil {
@@ -327,6 +372,9 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		theme:           cfg.Theme,
 		savedTheme:      savedTheme,
 		themeTabSel:     themeIndex(cfg.Theme),
+		librarySnippets: snippets,
+		libraryFiltered: snippets,
+		librarySearchInput: libSearch,
 		iconStyle:       views.ParseIconStyle(cfg.IconStyle),
 		searchInput:     si,
 		envSearchInput:  esi,
@@ -633,6 +681,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Non-fatal; leave history empty and move on.
 		return m, nil
 
+	case clearNoticeMsg:
+		// Only clear if no newer notice has superseded this one. Compare
+		// ids so a fast sequence of setNotice calls doesn't blink the
+		// status bar — the latest notice always wins.
+		if msg.id == m.noticeID {
+			m.notice = ""
+		}
+		return m, nil
+
 	case tickMsg:
 		if !m.running {
 			return m, nil
@@ -705,6 +762,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.activeTab == TabTheme {
 		return m.handleThemeKey(msg)
+	}
+	if m.activeTab == TabLibrary {
+		return m.handleLibraryKey(msg)
 	}
 	if m.searchInput.Focused() {
 		return m.handleSearchKey(msg)
@@ -815,9 +875,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case k == m.keys.Quit:
 		return m, tea.Quit
 	case k == m.keys.TabNext:
-		m.activeTab = (m.activeTab + 1) % 4
+		m.activeTab = (m.activeTab + 1) % tabCount
 	case k == m.keys.TabPrev:
-		m.activeTab = (m.activeTab + 3) % 4
+		m.activeTab = (m.activeTab + tabCount - 1) % tabCount
 	case k == m.keys.Up:
 		if m.rerunFocused {
 			// already at the very top
@@ -902,6 +962,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.openTagsPopup()
 		}
 		return m, nil
+	case k == m.keys.ExtractSnippet:
+		if m.activeTab == TabCommands && len(m.filtered) > 0 {
+			return m.extractCurrentToLibrary()
+		}
+		return m, nil
 	case k == m.keys.MakefilePageUp:
 		step := m.makefilePageStep()
 		m.makefileOffset -= step
@@ -966,10 +1031,10 @@ func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.activeTab = TabCommands
 		return m, nil
 	case "tab", m.keys.TabNext:
-		m.activeTab = (m.activeTab + 1) % 4
+		m.activeTab = (m.activeTab + 1) % tabCount
 		return m, nil
 	case m.keys.TabPrev:
-		m.activeTab = (m.activeTab + 3) % 4
+		m.activeTab = (m.activeTab + tabCount - 1) % tabCount
 		return m, nil
 	case m.keys.Up, "k":
 		if m.themeTabSel > 0 {
@@ -1002,12 +1067,233 @@ func (m Model) commitThemeSelection() (tea.Model, tea.Cmd) {
 	path := config.LocalPath()
 	if err := config.WriteLocalTheme(path, string(chosen)); err != nil {
 		m.themeError = err.Error()
-		return m, nil
+		notice := m.setNotice("theme save failed: "+err.Error(), views.NoticeError)
+		return m, notice
 	}
 	m.theme = chosen
 	m.savedTheme = chosen
 	m.themeError = ""
+	notice := m.setNotice("theme '"+string(chosen)+"' saved to .cast.toml", views.NoticeSuccess)
+	return m, notice
+}
+
+// --- Status-bar notices -----------------------------------------------------
+
+// setNotice posts a transient toast in the bottom status bar. Returns the
+// tea.Cmd that schedules the auto-clear so callers can chain it via
+// tea.Batch when they also need to dispatch other commands.
+//
+// Successive calls overwrite the previous notice and bump noticeID; the
+// pending clear from any earlier notice becomes a no-op when its
+// clearNoticeMsg arrives.
+func (m *Model) setNotice(text string, kind views.NoticeKind) tea.Cmd {
+	m.noticeID++
+	id := m.noticeID
+	m.notice = text
+	m.noticeKind = int(kind)
+	return tea.Tick(noticeTTL, func(time.Time) tea.Msg {
+		return clearNoticeMsg{id: id}
+	})
+}
+
+// --- Library tab ------------------------------------------------------------
+
+// handleLibraryKey routes input while the Library tab is active.
+//
+// Navigation:  ↑/↓/j/k       move, /  focus search, esc   close tab
+// Actions:     ⏎ insert      d  delete (twice to confirm), tab  next tab
+//
+// All operations refresh state on success so the sidebar (and any future
+// surface that shows snippets) stays in sync.
+func (m Model) handleLibraryKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := msg.String()
+
+	if m.librarySearchInput.Focused() {
+		switch k {
+		case "esc":
+			m.librarySearchInput.Blur()
+			m.librarySearchInput.SetValue("")
+			m.refilterLibrary()
+			return m, nil
+		case "enter":
+			m.librarySearchInput.Blur()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.librarySearchInput, cmd = m.librarySearchInput.Update(msg)
+		m.refilterLibrary()
+		return m, cmd
+	}
+
+	switch k {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		if m.libraryConfirmDelete {
+			m.libraryConfirmDelete = false
+			return m, nil
+		}
+		m.activeTab = TabCommands
+		return m, nil
+	case "q":
+		return m, tea.Quit
+	case "tab", m.keys.TabNext:
+		m.activeTab = (m.activeTab + 1) % tabCount
+		return m, nil
+	case m.keys.TabPrev:
+		m.activeTab = (m.activeTab + tabCount - 1) % tabCount
+		return m, nil
+	case m.keys.Up, "k":
+		if m.librarySel > 0 {
+			m.librarySel--
+		}
+		m.libraryConfirmDelete = false
+		return m, nil
+	case m.keys.Down, "j":
+		if m.librarySel < len(m.libraryFiltered)-1 {
+			m.librarySel++
+		}
+		m.libraryConfirmDelete = false
+		return m, nil
+	case m.keys.Top:
+		m.librarySel = 0
+		return m, nil
+	case m.keys.Bottom:
+		if len(m.libraryFiltered) > 0 {
+			m.librarySel = len(m.libraryFiltered) - 1
+		}
+		return m, nil
+	case m.keys.Search:
+		m.librarySearchInput.Focus()
+		return m, textinput.Blink
+	case "enter":
+		if m.libraryConfirmDelete {
+			return m.commitLibraryDelete()
+		}
+		return m.insertSelectedSnippet()
+	case "d":
+		if m.libraryConfirmDelete {
+			return m.commitLibraryDelete()
+		}
+		if len(m.libraryFiltered) > 0 {
+			m.libraryConfirmDelete = true
+			m.libraryError = ""
+			m.libraryFeedback = ""
+		}
+		return m, nil
+	}
 	return m, nil
+}
+
+// refilterLibrary rebuilds m.libraryFiltered from m.librarySnippets using
+// the current search query. Empty query → full list. Match is a
+// case-insensitive substring on Name or Desc, mirroring sidebar's
+// commandMatches semantics.
+func (m *Model) refilterLibrary() {
+	q := m.librarySearchInput.Value()
+	if q == "" {
+		m.libraryFiltered = m.librarySnippets
+	} else {
+		var out []library.Snippet
+		for _, s := range m.librarySnippets {
+			if containsFold(s.Name, q) || containsFold(s.Desc, q) {
+				out = append(out, s)
+			}
+		}
+		m.libraryFiltered = out
+	}
+	if m.librarySel >= len(m.libraryFiltered) {
+		m.librarySel = 0
+	}
+}
+
+// reloadLibrary refreshes both the unfiltered slice and the filtered view.
+// Called after every insert/extract/delete.
+func (m *Model) reloadLibrary() {
+	if snips, err := library.List(); err == nil {
+		m.librarySnippets = snips
+	}
+	m.refilterLibrary()
+}
+
+// insertSelectedSnippet appends the focused snippet's body to the current
+// Makefile and reloads cast's command list so the new target appears
+// immediately. ErrTargetExists is surfaced as a sticky error banner.
+func (m Model) insertSelectedSnippet() (tea.Model, tea.Cmd) {
+	if len(m.libraryFiltered) == 0 || m.librarySel >= len(m.libraryFiltered) {
+		return m, nil
+	}
+	if m.makefilePath == "" {
+		m.libraryError = "no Makefile loaded"
+		return m, nil
+	}
+	snip := m.libraryFiltered[m.librarySel]
+	if err := source.AppendMakefileTarget(m.makefilePath, snip.Body); err != nil {
+		m.libraryError = err.Error()
+		m.libraryFeedback = ""
+		cmd := m.setNotice("insert failed: "+err.Error(), views.NoticeError)
+		return m, cmd
+	}
+	m.libraryFeedback = "inserted '" + snip.Name + "' into Makefile"
+	m.libraryError = ""
+	// Re-parse Makefile so the new target shows up in the sidebar.
+	src := &source.MakefileSource{Path: m.makefilePath}
+	if cmds, err := src.Load(); err == nil {
+		m.commands = cmds
+		m.filtered = filterCommands(m.commands, m.search)
+	}
+	m.makefileLines = loadFileLines(m.makefilePath)
+	m.activeTab = TabCommands
+	cmd := m.setNotice("inserted '"+snip.Name+"'", views.NoticeSuccess)
+	return m, cmd
+}
+
+// extractCurrentToLibrary captures the target highlighted in the commands
+// tab and saves it as a snippet under ~/.config/cast/snippets/. Reloads
+// the library list so the new entry is visible immediately.
+func (m Model) extractCurrentToLibrary() (tea.Model, tea.Cmd) {
+	if len(m.filtered) == 0 || m.selected >= len(m.filtered) {
+		return m, nil
+	}
+	cmd := m.filtered[m.selected]
+	body, err := source.ExtractMakefileTarget(m.makefilePath, cmd.Name)
+	if err != nil {
+		m.libraryError = err.Error()
+		notice := m.setNotice("extract failed: "+err.Error(), views.NoticeError)
+		return m, notice
+	}
+	if err := library.Save(library.Snippet{Name: cmd.Name, Body: body}); err != nil {
+		m.libraryError = err.Error()
+		notice := m.setNotice("save failed: "+err.Error(), views.NoticeError)
+		return m, notice
+	}
+	m.libraryFeedback = "saved '" + cmd.Name + "' to library"
+	m.libraryError = ""
+	m.reloadLibrary()
+	notice := m.setNotice("saved '"+cmd.Name+"' to snippets library", views.NoticeSuccess)
+	return m, notice
+}
+
+// commitLibraryDelete deletes the currently focused snippet from disk.
+// Idempotent on repeat presses (file already gone → silently re-list).
+func (m Model) commitLibraryDelete() (tea.Model, tea.Cmd) {
+	if len(m.libraryFiltered) == 0 || m.librarySel >= len(m.libraryFiltered) {
+		m.libraryConfirmDelete = false
+		return m, nil
+	}
+	target := m.libraryFiltered[m.librarySel].Name
+	if err := library.Delete(target); err != nil {
+		m.libraryError = err.Error()
+		m.libraryConfirmDelete = false
+		notice := m.setNotice("delete failed: "+err.Error(), views.NoticeError)
+		return m, notice
+	}
+	m.libraryFeedback = "deleted '" + target + "'"
+	m.libraryError = ""
+	m.libraryConfirmDelete = false
+	m.reloadLibrary()
+	notice := m.setNotice("deleted '"+target+"' from library", views.NoticeInfo)
+	return m, notice
 }
 
 // hasRerunCard reports whether the pinned rerun card should be visible at
@@ -1409,7 +1695,7 @@ func (m Model) toggleMakefileExpand() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	cmd := m.filtered[m.selected]
-	m.makefileExpandLines = commandMakefileSection(m.makefileLines, cmd.Name)
+	m.makefileExpandLines = source.MakefileTargetLines(m.makefileLines, cmd.Name)
 	m.makefileExpandOff = 0
 	m.showMakefileExpand = true
 	return m, nil
@@ -1564,9 +1850,9 @@ func (m Model) handleEnvKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return m, tea.Quit
 	case "tab", m.keys.TabNext:
-		m.activeTab = (m.activeTab + 1) % 4
+		m.activeTab = (m.activeTab + 1) % tabCount
 	case m.keys.TabPrev:
-		m.activeTab = (m.activeTab + 3) % 4
+		m.activeTab = (m.activeTab + tabCount - 1) % tabCount
 	case "left", "h":
 		m.envFocus = 0
 	case "right", "l":
@@ -1774,40 +2060,6 @@ func filterEnvVars(ef *source.EnvFile, query string) []source.EnvVar {
 		}
 	}
 	return out
-}
-
-func commandMakefileSection(lines []string, name string) []string {
-	if len(lines) == 0 || name == "" {
-		return nil
-	}
-	targetIdx := -1
-	for i, line := range lines {
-		if strings.HasPrefix(line, "\t") {
-			continue
-		}
-		trimmed := strings.TrimSpace(line)
-		if trimmed == name+":" || strings.HasPrefix(trimmed, name+":") || strings.HasPrefix(trimmed, name+" ") {
-			targetIdx = i
-			break
-		}
-	}
-	if targetIdx == -1 {
-		return nil
-	}
-	startIdx := targetIdx
-	if targetIdx > 0 && strings.Contains(lines[targetIdx-1], "## "+name) {
-		startIdx = targetIdx - 1
-	}
-	endIdx := len(lines)
-	for i := targetIdx + 1; i < len(lines); i++ {
-		line := lines[i]
-		if line == "" || strings.HasPrefix(line, "\t") {
-			continue
-		}
-		endIdx = i
-		break
-	}
-	return lines[startIdx:endIdx]
 }
 
 // --- run dispatch ------------------------------------------------------------

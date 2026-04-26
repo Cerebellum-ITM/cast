@@ -2,11 +2,22 @@ package source
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
 )
+
+// ErrTargetExists is returned by AppendMakefileTarget when the Makefile
+// already declares a target with the same name. Callers surface this so the
+// user can rename or delete the existing one before retrying — overwriting
+// silently would risk data loss.
+var ErrTargetExists = errors.New("makefile: target already exists")
+
+// ErrTargetNotFound is returned by ExtractMakefileTarget when the requested
+// target name is absent from the file.
+var ErrTargetNotFound = errors.New("makefile: target not found")
 
 // MakefileSource loads commands from a Makefile using ## comments.
 type MakefileSource struct {
@@ -542,6 +553,163 @@ func autoShortcut(name string, existing []Command) string {
 		if !used[s] {
 			return s
 		}
+	}
+	return ""
+}
+
+// MakefileTargetLines returns the contiguous slice of lines that make up
+// target `name` in `lines`: the leading `## name: …` doc-line (if present
+// directly above the target), the bare `name:` declaration, and every
+// recipe line until the next non-tab, non-blank line. Returns nil when no
+// matching target is found. Used by both the TUI's expand-popup and the
+// snippet library's extract flow.
+func MakefileTargetLines(lines []string, name string) []string {
+	if len(lines) == 0 || name == "" {
+		return nil
+	}
+	targetIdx := findTargetIndex(lines, name)
+	if targetIdx == -1 {
+		return nil
+	}
+	startIdx := targetIdx
+	if targetIdx > 0 && strings.Contains(lines[targetIdx-1], "## "+name) {
+		startIdx = targetIdx - 1
+	}
+	endIdx := len(lines)
+	for i := targetIdx + 1; i < len(lines); i++ {
+		line := lines[i]
+		if line == "" || strings.HasPrefix(line, "\t") {
+			continue
+		}
+		endIdx = i
+		break
+	}
+	return lines[startIdx:endIdx]
+}
+
+// findTargetIndex returns the index of the rule line that declares target
+// `name`, or -1 when absent. A rule line:
+//
+//   - Starts at column 0 (no leading whitespace; both tabs and spaces
+//     disqualify, so `.PHONY` continuations and recipe lines are ignored).
+//   - Is not a comment (does not begin with `#`).
+//   - Contains a `:` that is NOT immediately followed by `=` (rules out
+//     variable assignments like `VAR := value`).
+//   - Lists `name` among the space-separated targets before the `:`.
+//
+// The earlier implementation matched any line whose trimmed prefix started
+// with `name+" "`, which incorrectly captured `.PHONY` continuation lines
+// indented with spaces (e.g. `        pick_demo pick_nested …`).
+func findTargetIndex(lines []string, name string) int {
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		// Reject any indentation: tabs (recipe), spaces (PHONY continuation,
+		// nested directives, accidental).
+		if line[0] == '\t' || line[0] == ' ' {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		colon := strings.Index(trimmed, ":")
+		if colon < 0 {
+			continue
+		}
+		// Skip variable assignments: `VAR := value`. Bare `VAR = value`
+		// has no colon at all and was already filtered out above.
+		if colon+1 < len(trimmed) && trimmed[colon+1] == '=' {
+			continue
+		}
+		head := trimmed[:colon]
+		for _, t := range strings.Fields(head) {
+			if t == name {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// AppendMakefileTarget writes snippetBody at the end of the Makefile at
+// path, separated from the existing content by a blank line. Returns
+// ErrTargetExists when the Makefile already declares a target with the
+// same name as the snippet (best-effort detection: matches the first bare
+// `<name>:` line in the snippet body). Caller is expected to provide a
+// snippet body that already ends with a newline; we tolerate either way.
+func AppendMakefileTarget(path, snippetBody string) error {
+	if strings.TrimSpace(snippetBody) == "" {
+		return fmt.Errorf("makefile: empty snippet body")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("makefile: read %s: %w", path, err)
+	}
+	existingLines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if name := snippetTargetName(snippetBody); name != "" {
+		if findTargetIndex(existingLines, name) != -1 {
+			return fmt.Errorf("%w: %s", ErrTargetExists, name)
+		}
+	}
+
+	// Build the new content: existing trimmed, blank line, snippet, trailing nl.
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(string(data), "\n"))
+	b.WriteString("\n\n")
+	b.WriteString(strings.TrimRight(snippetBody, "\n"))
+	b.WriteString("\n")
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("makefile: write %s: %w", path, err)
+	}
+	return os.Rename(tmp, path)
+}
+
+// ExtractMakefileTarget reads path, locates target `name` (including its
+// leading `## name: …` doc-line if present), and returns the verbatim
+// snippet body terminated with a newline. ErrTargetNotFound when name is
+// absent.
+func ExtractMakefileTarget(path, name string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("makefile: read %s: %w", path, err)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	section := MakefileTargetLines(lines, name)
+	if section == nil {
+		return "", fmt.Errorf("%w: %s", ErrTargetNotFound, name)
+	}
+	return strings.Join(section, "\n") + "\n", nil
+}
+
+// snippetTargetName returns the name of the first bare target declaration
+// in body, skipping variable assignments and comments. A line is a target
+// when its first separator (`:` or whitespace) precedes any `=` — that
+// rules out `VAR = 1` and `VAR=1` style assignments while accepting
+// `name:`, `name: deps`, and `name dep1 dep2:`.
+func snippetTargetName(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "\t") || strings.HasPrefix(line, " ") {
+			continue
+		}
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		colonOrSp := strings.IndexAny(t, ": ")
+		eq := strings.Index(t, "=")
+		if colonOrSp <= 0 {
+			continue
+		}
+		// Variable assignment: `=` appears before the first `:`/space, or
+		// the line has no `:` at all but does have `=`.
+		if eq >= 0 && (eq < colonOrSp || !strings.Contains(t, ":")) {
+			continue
+		}
+		return t[:colonOrSp]
 	}
 	return ""
 }

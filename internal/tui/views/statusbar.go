@@ -11,6 +11,19 @@ import (
 	"github.com/Cerebellum-ITM/cast/internal/version"
 )
 
+// NoticeKind classifies a transient toast surfaced in the header pill area
+// (renderNoticePill in tui/render.go). It maps to a glyph and foreground
+// colour so the user can scan severity at a glance without reading the
+// message. The type lives in views so model and the header renderer share
+// the same vocabulary without dragging in a tui→views→tui cycle.
+type NoticeKind int
+
+const (
+	NoticeInfo NoticeKind = iota
+	NoticeSuccess
+	NoticeError
+)
+
 // StatusBar renders the 1-row bottom status bar: command count on the left,
 // working directory + source filename on the right.
 func StatusBar(p Palette, cmdCount int, sourcePath string, width int) string {

@@ -29,6 +29,7 @@ type KeyMap struct {
 	SidebarNarrower  string // shrink the left sidebar
 	EditShortcut     string // enter single-key shortcut edit mode for the selected command
 	EditTags         string // open the tag-editor popup for the selected command
+	ExtractSnippet   string // extract the selected target to the global snippets library
 	MakefilePageUp   string // scroll the center Makefile preview up one page
 	MakefilePageDown string // scroll the center Makefile preview down one page
 	ModeToggle       string // switch sidebar/history between single and chain mode
@@ -58,6 +59,7 @@ var DefaultKeyMap = KeyMap{
 	SidebarNarrower:  "{",
 	EditShortcut:     "ctrl+k",
 	EditTags:         "ctrl+t",
+	ExtractSnippet:   "ctrl+x",
 	MakefilePageUp:   "pgup",
 	MakefilePageDown: "pgdown",
 	ModeToggle:       "ctrl+s",

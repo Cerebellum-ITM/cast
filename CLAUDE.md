@@ -111,6 +111,36 @@ previous pick. The picker is also a fzf — type to filter and press `enter`
 to select. Folder rows are decorated with content-aware glyphs (Odoo
 modules, Git repos, Makefiles, `package.json`, …).
 
+### Snippets library
+
+Reusable Makefile targets live under `~/.config/cast/snippets/<name>.mk`,
+one file per snippet. Each `.mk` carries the full target: a
+`## name: desc [tags…]` doc-line followed by the `name:` declaration and
+its tab-indented recipe. Files are plain Make so editor syntax
+highlighting and dotfile sharing work without escaping.
+
+The `library` tab (5th tab in the TUI) browses the global collection with
+fuzzy search and a side-by-side preview. Keybinds inside the tab:
+
+| Key | Action |
+|---|---|
+| `↑/↓` `j/k` | Move cursor |
+| `/` | Focus search |
+| `⏎` | Insert into current Makefile (aborts on `ErrTargetExists`) |
+| `d` | Arm delete; second `d` or `⏎` confirms |
+| `esc` | Cancel delete or close tab |
+
+From the `commands` tab, `ctrl+x` extracts the highlighted target and
+saves it to the library (round-trips back through `library.Save`, which
+normalises the `## name:` doc-line so the basename and the embedded name
+stay in sync).
+
+Code: `internal/library/library.go` exposes `Dir`, `EnsureDir`, `List`,
+`Load`, `Save`, `Delete`, `SanitizeName`. Makefile-side helpers in
+`internal/source/makefile.go`: `MakefileTargetLines`,
+`AppendMakefileTarget`, `ExtractMakefileTarget`, plus errors
+`ErrTargetExists` / `ErrTargetNotFound`.
+
 ### App mode: single vs chain
 
 The TUI has two top-level modes toggled with `ctrl+s`. A pill in the header shows the active mode (cyan `SINGLE` or orange `CHAIN`).
@@ -188,7 +218,7 @@ needs to display the current build.
   Makefile tag grammar.
 
 Edit `version.Current` in the same commit that introduces the change — never
-in a separate bookkeeping commit. Current: `0.15.0`.
+in a separate bookkeeping commit. Current: `0.16.0`.
 
 ---
 

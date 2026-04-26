@@ -42,6 +42,9 @@ type IconSet struct {
 
 	// Picker chrome.
 	PickerTitle string // glyph next to the picker title
+
+	// Library / snippets.
+	Snippet string // each row in the snippets library
 }
 
 // Icons returns the icon set for the requested style.
@@ -59,6 +62,7 @@ func Icons(style IconStyle) IconSet {
 			Warning:       "⚠️",
 			Folder:        "📁",
 			PickerTitle:   "📁",
+			Snippet:       "📋",
 		}
 	}
 	// Nerd Font (default). Codepoints come from the Nerd Fonts cheat sheet
@@ -76,5 +80,6 @@ func Icons(style IconStyle) IconSet {
 		Warning:       "",  // nf-fa-exclamation_triangle
 		Folder:        "",  // nf-fa-folder
 		PickerTitle:   "",  // nf-fa-folder_open
+		Snippet:       "",  // nf-fa-code (snippet / library)
 	}
 }
