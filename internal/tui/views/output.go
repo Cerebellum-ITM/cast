@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Cerebellum-ITM/cast/internal/db"
@@ -170,26 +171,91 @@ func renderTermRows(p Palette, output []string, w, h int) []string {
 	return rows
 }
 
+// renderRecentRows draws a compact, non-interactive table mirroring the
+// History tab's columns (status dot, command, duration, started) but
+// trimmed to fit in the output panel: only a header underline, no outer
+// borders, no row striping. The slot is fixed-height so the live output
+// area above stays stable: label (1) + header (1) + separator (1) +
+// `max` data lines.
 func renderRecentRows(p Palette, history []db.Run, w, max int) []string {
 	label := lipgloss.NewStyle().Width(w).Padding(0, 1).
 		Foreground(p.Fg).Bold(true).Render("RECENT")
-	// sep := SepLine(p, w)
 
-	rows := []string{label}
+	slotH := 1 + 1 + 1 + max // label + header + separator + data rows
 
-	for i, r := range history {
-		if i >= max {
-			break
+	if len(history) == 0 {
+		empty := lipgloss.NewStyle().Width(w).Padding(0, 1).
+			Foreground(p.FgDim).Render("no runs yet")
+		rows := []string{label, empty}
+		for len(rows) < slotH {
+			rows = append(rows, lipgloss.NewStyle().Width(w).Render(""))
 		}
-		dot := StatusDot(p, r.Status)
-		name := Style(p.FgDim, false).Render(Truncate(r.Command, 10))
-		dur := Style(p.FgDim, false).Render(r.DurationStr())
-		ts := Style(p.FgDim, false).Render(r.TimeStr())
-		rows = append(rows, lipgloss.NewStyle().Width(w).Padding(0, 1).
-			Render(dot+" "+name+"  "+dur+"  "+ts))
+		return rows
 	}
-	for len(rows) < 2+max {
+
+	headers := []string{"", "COMMAND", "DUR", "TIME"}
+	count := len(history)
+	if count > max {
+		count = max
+	}
+	data := make([][]string, 0, count)
+	// Compact command column width: total minus dot col, dur (~6), time (~8),
+	// padding (~6) → leave the rest for the name. Lipgloss handles overflow,
+	// but Truncate keeps the row visually predictable.
+	nameW := w - 3 - 6 - 8 - 6
+	if nameW < 6 {
+		nameW = 6
+	}
+	for i := 0; i < count; i++ {
+		r := history[i]
+		data = append(data, []string{
+			StatusDot(p, r.Status),
+			Truncate(r.Command, nameW),
+			r.DurationStr(),
+			r.TimeStr(),
+		})
+	}
+
+	borderStyle := lipgloss.NewStyle().Foreground(p.Border)
+	tbl := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(borderStyle).
+		BorderTop(false).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		BorderHeader(true).
+		BorderRow(false).
+		BorderColumn(false).
+		Headers(headers...).
+		Rows(data...).
+		Width(w - 2).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			s := lipgloss.NewStyle().Padding(0, 1)
+			if row == table.HeaderRow {
+				if col == 0 {
+					return s.Width(3).Align(lipgloss.Center).Foreground(p.FgDim).Bold(true)
+				}
+				return s.Foreground(p.FgDim).Bold(true)
+			}
+			switch col {
+			case 0:
+				return s.Width(3).Align(lipgloss.Center)
+			case 1:
+				return s.Foreground(p.Fg)
+			default:
+				return s.Foreground(p.FgMuted)
+			}
+		})
+
+	body := lipgloss.NewStyle().Padding(0, 1).Render(tbl.Render())
+	rows := []string{label}
+	rows = append(rows, strings.Split(body, "\n")...)
+	for len(rows) < slotH {
 		rows = append(rows, lipgloss.NewStyle().Width(w).Render(""))
+	}
+	if len(rows) > slotH {
+		rows = rows[:slotH]
 	}
 	return rows
 }

@@ -8,6 +8,16 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.18.1] – 2026-04-26
+
+### Changed
+
+- **RECENT pane uses a compact table.** The output-panel "RECENT" list
+  now renders as a header-underlined, non-interactive table (status,
+  COMMAND, DUR, TIME) mirroring the History tab's column layout —
+  previously each row was a free-form line. Same fixed slot height as
+  before (`recentMax = 4` rows + label + header + separator).
+
 ## [0.18.0] – 2026-04-26
 
 ### Changed
