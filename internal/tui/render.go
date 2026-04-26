@@ -305,6 +305,9 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	if m.activeTab == TabHistory {
 		return m.renderHistoryBody(p, bodyH)
 	}
+	if m.activeTab == TabTheme {
+		return m.renderThemeBody(p, bodyH)
+	}
 
 	sbInner := m.sidebarPanelW() - 1
 	outInner := m.outputPanelW() - 1
@@ -400,6 +403,31 @@ func (m Model) renderLibraryBody(p views.Palette, bodyH int) string {
 		IconStyle:     m.iconStyle,
 		Width:         m.width,
 		Height:        bodyH,
+	})
+}
+
+// renderThemeBody draws the theme tab full-width: no sidebar, no output
+// panel. Picking a theme is a focused, transient action and the swatches
+// benefit from horizontal space to render side-by-side previews without
+// competing with the commands list or the live output stream.
+func (m Model) renderThemeBody(p views.Palette, bodyH int) string {
+	opts := make([]views.ThemeOption, 0, len(themeOrder))
+	for _, t := range themeOrder {
+		opts = append(opts, views.ThemeOption{
+			Key:      string(t),
+			Label:    themeLabel(t),
+			Preview:  paletteFor(t, m.env),
+			IsActive: t == m.theme,
+			Saved:    t == m.savedTheme,
+		})
+	}
+	return views.Theme(p, views.ThemeProps{
+		Options:    opts,
+		Selected:   m.themeTabSel,
+		LocalPath:  config.LocalPath(),
+		WriteError: m.themeError,
+		Width:      m.width,
+		Height:     bodyH,
 	})
 }
 

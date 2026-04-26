@@ -8,6 +8,25 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.19.0] – 2026-04-26
+
+### Added
+
+- **Theme tab live preview.** The right side of the Theme tab now renders
+  the focused theme's palette into mock UI surfaces (sidebar card, tag
+  chips, status bar, status dots, full token grid) so users can judge
+  contrast and accent choices before committing. Falls back to a single
+  column when the terminal is narrower than 60 cols.
+
+## [0.18.2] – 2026-04-26
+
+### Changed
+
+- **Theme tab is now full-width.** The commands sidebar and the live output
+  panel are hidden while the Theme tab is active, mirroring the Library
+  layout. Picking a theme is a focused, transient action and the swatches
+  read better with the freed horizontal space.
+
 ## [0.18.1] – 2026-04-26
 
 ### Changed
