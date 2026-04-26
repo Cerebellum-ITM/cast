@@ -8,6 +8,23 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.18.0] – 2026-04-26
+
+### Changed
+
+- **History tab is now full-width.** The left sidebar (commands in single
+  mode, saved chains in chain mode) is hidden while the History tab is
+  active so the runs table can use the freed horizontal space. The live
+  output panel still renders on the right.
+
+### Added
+
+- **Re-run from the History table.** `↑`/`↓` move a row cursor (and `g`/`G`
+  jump to top/bottom); `⏎` on a row re-runs that entry. In single mode it
+  dispatches the highlighted command (auto-queues it if another run is in
+  progress); in chain mode it replays the full saved chain. Targets
+  removed from the Makefile show a status-bar notice instead of erroring.
+
 ## [0.17.2] – 2026-04-26
 
 ### Fixed

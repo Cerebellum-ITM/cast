@@ -302,6 +302,9 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	if m.activeTab == TabLibrary {
 		return m.renderLibraryBody(p, bodyH)
 	}
+	if m.activeTab == TabHistory {
+		return m.renderHistoryBody(p, bodyH)
+	}
 
 	sbInner := m.sidebarPanelW() - 1
 	outInner := m.outputPanelW() - 1
@@ -398,6 +401,61 @@ func (m Model) renderLibraryBody(p views.Palette, bodyH int) string {
 		Width:         m.width,
 		Height:        bodyH,
 	})
+}
+
+// renderHistoryBody draws the history tab without a sidebar: the runs/chains
+// table is the primary surface and takes the freed horizontal space, while
+// the live output panel stays on the right. Up/Down moves the row cursor;
+// Enter on a row re-runs the corresponding command (single mode) or replays
+// the chain (chain mode) — see handleKey's TabHistory branch.
+func (m Model) renderHistoryBody(p views.Palette, bodyH int) string {
+	outW := m.outputPanelW()
+	if !m.showCenter {
+		outW = 0
+	}
+	tableW := m.width - outW - 1 // -1 for the divider column
+	if outW == 0 {
+		tableW = m.width
+	}
+	if tableW < 10 {
+		tableW = 10
+	}
+
+	selected := m.historySel
+	if m.mode == ModeChain {
+		selected = m.chainHistorySel
+	}
+	tbl := views.History(p, views.HistoryProps{
+		Records:   m.history,
+		Cmds:      m.commands,
+		Mode:      int(m.mode),
+		ChainRuns: m.chainRuns,
+		Selected:  selected,
+		Width:     tableW,
+		Height:    bodyH,
+	})
+
+	if outW == 0 {
+		return tbl
+	}
+
+	output := views.Output(p, views.OutputProps{
+		Lines:       m.output,
+		History:     m.history,
+		Running:     m.running,
+		Streaming:   m.streaming,
+		LivePulse:   m.livePulse,
+		HasLastRun:  m.hasLastRun,
+		LastRunOK:   m.lastRunOK,
+		LastRunCmd:  m.lastRunCmd,
+		SpinnerView: m.spinner.View(),
+		RunProgress: m.runProgress,
+		Width:       outW - 1,
+		Height:      bodyH,
+	})
+	divStyle := lipgloss.NewStyle().Foreground(p.Border)
+	divCol := divStyle.Render(strings.Repeat("│\n", bodyH-1) + "│")
+	return lipgloss.JoinHorizontal(lipgloss.Top, tbl, divCol, output)
 }
 
 func (m Model) renderEnvBody(p views.Palette, bodyH, totalW int) string {

@@ -6,4 +6,4 @@ package version
 
 // Current is the semver string shown in the splash and reported by the
 // CLI. Format: MAJOR.MINOR.PATCH, no leading "v".
-const Current = "0.17.2"
+const Current = "0.18.0"

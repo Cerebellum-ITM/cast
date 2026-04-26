@@ -224,6 +224,12 @@ type Model struct {
 	chainSel        int                   // cursor in the chain sidebar
 	chainHistoryMax int
 
+	// Cursors for the History tab. The tab renders one of two tables
+	// depending on m.mode; each gets its own cursor so switching modes
+	// doesn't stomp the other selection.
+	historySel      int // index into m.history (single mode)
+	chainHistorySel int // index into m.chainRuns (chain mode)
+
 	// Explicit chain-builder (ctrl+b from single mode): user picks N commands
 	// via space/shortcut, Enter dispatches the chain. Selection order drives
 	// execution order.
@@ -614,6 +620,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.historyMax > 0 && len(m.history) > m.historyMax {
 			m.history = m.history[:m.historyMax]
 		}
+		m.historySel = 0
 
 		stepSucceeded := run.Status == db.StatusSuccess
 		if stepSucceeded {
@@ -659,10 +666,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.chainSel >= len(m.chains) {
 			m.chainSel = 0
 		}
+		if m.chainHistorySel >= len(m.chainRuns) {
+			m.chainHistorySel = 0
+		}
 		return m, nil
 
 	case HistoryLoadedMsg:
 		m.history = msg.Runs
+		if m.historySel >= len(m.history) {
+			m.historySel = 0
+		}
 		return m, nil
 
 	case EnvHistoryLoadedMsg:
@@ -839,6 +852,84 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m.startChainFromSelection()
+		}
+	}
+
+	// History tab is its own full-width view with a navigable table —
+	// the sidebar is hidden, so navigation keys drive the row cursor and
+	// Enter re-runs the highlighted row (single command or full chain).
+	if m.activeTab == TabHistory {
+		if m.mode == ModeChain {
+			n := len(m.chainRuns)
+			switch k {
+			case m.keys.Up:
+				if m.chainHistorySel > 0 {
+					m.chainHistorySel--
+				}
+				return m, nil
+			case m.keys.Down:
+				if m.chainHistorySel < n-1 {
+					m.chainHistorySel++
+				}
+				return m, nil
+			case m.keys.Top:
+				m.chainHistorySel = 0
+				return m, nil
+			case m.keys.Bottom:
+				if n > 0 {
+					m.chainHistorySel = n - 1
+				}
+				return m, nil
+			case m.keys.Run, m.keys.RunAlt:
+				if m.running {
+					return m, nil
+				}
+				if m.chainHistorySel >= n {
+					return m, nil
+				}
+				cmds := m.chainRuns[m.chainHistorySel].Commands
+				if len(cmds) == 0 {
+					return m, nil
+				}
+				return m.startChainFromCommands(cmds)
+			}
+		} else {
+			n := len(m.history)
+			switch k {
+			case m.keys.Up:
+				if m.historySel > 0 {
+					m.historySel--
+				}
+				return m, nil
+			case m.keys.Down:
+				if m.historySel < n-1 {
+					m.historySel++
+				}
+				return m, nil
+			case m.keys.Top:
+				m.historySel = 0
+				return m, nil
+			case m.keys.Bottom:
+				if n > 0 {
+					m.historySel = n - 1
+				}
+				return m, nil
+			case m.keys.Run, m.keys.RunAlt:
+				if m.historySel >= n {
+					return m, nil
+				}
+				name := m.history[m.historySel].Command
+				if m.running {
+					m.enqueueCommand(name)
+					return m, nil
+				}
+				cmd := m.findCommand(name)
+				if cmd == nil {
+					notice := m.setNotice("'"+name+"' is no longer in the Makefile", views.NoticeError)
+					return m, notice
+				}
+				return m.startSingleRun(*cmd, nil)
+			}
 		}
 	}
 

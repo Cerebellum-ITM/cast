@@ -191,12 +191,15 @@ func renderMakefilePreview(p Palette, props CommandsProps, h int) string {
 }
 
 // HistoryProps bundles the history tab inputs. When Mode == 1 the Chain runs
-// table is rendered instead of the per-command runs table.
+// table is rendered instead of the per-command runs table. Selected is the
+// cursor row in the active mode's table; it is highlighted so the user can
+// pick a row to re-run with Enter.
 type HistoryProps struct {
 	Records   []db.Run
 	Cmds      []source.Command
 	Mode      int // 0 = single, 1 = chain
 	ChainRuns []db.ChainRunRecord
+	Selected  int
 	Width     int
 	Height    int
 }
@@ -205,12 +208,12 @@ type HistoryProps struct {
 // depends on the active AppMode (single-run list vs. chain-run list).
 func History(p Palette, props HistoryProps) string {
 	if props.Mode == 1 {
-		return renderChainRunsTable(p, props.ChainRuns, props.Width, props.Height)
+		return renderChainRunsTable(p, props.ChainRuns, props.Selected, props.Width, props.Height)
 	}
-	return renderRunsTable(p, props.Records, props.Cmds, props.Width, props.Height)
+	return renderRunsTable(p, props.Records, props.Cmds, props.Selected, props.Width, props.Height)
 }
 
-func renderChainRunsTable(p Palette, runs []db.ChainRunRecord, w, h int) string {
+func renderChainRunsTable(p Palette, runs []db.ChainRunRecord, selected, w, h int) string {
 	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
 		Foreground(p.Fg).Bold(true).
 		Render("CHAIN HISTORY")
@@ -250,14 +253,19 @@ func renderChainRunsTable(p Palette, runs []db.ChainRunRecord, w, h int) string 
 				}
 				return s.Foreground(p.FgDim).Bold(true)
 			}
+			isSel := row == selected
 			switch col {
 			case 0:
-				return s.Width(3).Align(lipgloss.Center)
+				s = s.Width(3).Align(lipgloss.Center)
 			case 1:
-				return s.Foreground(p.Fg).Bold(true)
+				s = s.Foreground(p.Fg).Bold(true)
 			default:
-				return s.Foreground(p.FgMuted)
+				s = s.Foreground(p.FgMuted)
 			}
+			if isSel {
+				s = s.Background(p.BgSelected).Bold(col == 1)
+			}
+			return s
 		})
 	body := lipgloss.NewStyle().Padding(0, 2).Render(tbl.Render())
 	return lipgloss.NewStyle().Width(w).Height(h).
@@ -274,7 +282,7 @@ func formatChainDuration(d time.Duration) string {
 	return d.Truncate(time.Second).String()
 }
 
-func renderRunsTable(p Palette, records []db.Run, cmds []source.Command, w, h int) string {
+func renderRunsTable(p Palette, records []db.Run, cmds []source.Command, selected, w, h int) string {
 	titleRow := lipgloss.NewStyle().Width(w).Padding(0, 2).
 		Foreground(p.Fg).Bold(true).
 		Render("HISTORY")
@@ -321,12 +329,13 @@ func renderRunsTable(p Palette, records []db.Run, cmds []source.Command, w, h in
 				}
 				return s.Foreground(p.FgDim).Bold(true)
 			}
+			isSel := row == selected
 			switch col {
 			case 0:
 				// Fixed narrow column so a single dot doesn't expand it.
-				return s.Width(3).Align(lipgloss.Center)
+				s = s.Width(3).Align(lipgloss.Center)
 			case 1:
-				return s.Foreground(p.Fg).Bold(true)
+				s = s.Foreground(p.Fg).Bold(true)
 			case 2:
 				fg := p.FgDim
 				if row >= 0 && row < len(rows) {
@@ -341,9 +350,12 @@ func renderRunsTable(p Palette, records []db.Run, cmds []source.Command, w, h in
 						fg = p.Green
 					}
 				}
-				return s.Foreground(fg)
+				s = s.Foreground(fg)
 			case 3, 4:
-				return s.Foreground(p.FgMuted)
+				s = s.Foreground(p.FgMuted)
+			}
+			if isSel {
+				s = s.Background(p.BgSelected).Bold(col == 1)
 			}
 			return s
 		})
