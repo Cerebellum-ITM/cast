@@ -218,7 +218,41 @@ needs to display the current build.
   Makefile tag grammar.
 
 Edit `version.Current` in the same commit that introduces the change — never
-in a separate bookkeeping commit. Current: `0.16.0`.
+in a separate bookkeeping commit. Current: `0.17.0`.
+
+---
+
+## Changelog (IMPORTANT)
+
+Every version bump in `internal/version/version.go` MUST be accompanied by a
+matching entry in `CHANGELOG.md` at the repo root. Same commit. No exceptions.
+
+Rules:
+
+- **Always written in English**, regardless of the language used in the
+  conversation that produced the change.
+- **One section per version**, newest first. Heading format:
+  `## [<version>] – YYYY-MM-DD`.
+- Group related items under sub-headings: `### Added`, `### Changed`,
+  `### Fixed`, `### Removed`. Skip headings that have no entries.
+- Each item is a one-line summary. Lead with the surface that changed
+  ("Library tab:", "Picker:", "Theme tab:") so the reader can scan.
+- **Include usage examples for new user-facing features.** A new keybinding,
+  Makefile tag, CLI subcommand, or config key without a usage snippet
+  forces the next reader to dig through code. Use fenced code blocks (Make,
+  TOML, or shell) right under the bullet that introduced it.
+- Bug fixes name the symptom and the version that introduced the bug when
+  it's known ("Fixed 0.16.0 regression where …").
+- Behaviour changes that affect existing users go in `### Changed` with a
+  short rationale. Keep it user-facing — internal refactors with no visible
+  effect don't deserve an entry.
+
+Format reference: <https://keepachangelog.com/en/1.1.0/>. We follow its
+spirit, not its exact rules.
+
+When the user asks for a change without bumping the version (purely
+exploratory or aborted work), do not edit the changelog. The contract is:
+version bump ↔ changelog entry, both or neither.
 
 ---
 
