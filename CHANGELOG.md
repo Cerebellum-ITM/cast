@@ -8,6 +8,37 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.17.2] – 2026-04-26
+
+### Fixed
+
+- **Library tab hints clipped off-screen** (real cause of the 0.17.1
+  symptom). `renderLibraryList` was packing each two-line card into a
+  single slice element joined by `\n`, while `padRows` reasoned in
+  *element* count rather than *line* count. The list ended up rendering
+  more lines than its `bodyH` budget, pushing the hint past the panel
+  bottom; `fitFrame` then cropped it. `renderLibraryRow` now returns
+  two separate strings (one per row) and the caller appends each as its
+  own slice entry so element count == line count.
+
+## [0.17.1] – 2026-04-26
+
+### Fixed
+
+- **Status bar disappears on narrow terminals.** When the header pills
+  (notice + mode + env) plus the logo/tabs exceeded the terminal width,
+  the wrapped header pushed everything below out of the viewport.
+  `renderMain` now hard-fits the header, body, and status bar to their
+  budgeted slots (`headerH`, `bodyH`, `statusH`) — over-wide lines are
+  ANSI-truncated rather than wrapped, so the status bar is always
+  visible regardless of terminal size.
+- **Library tab hints not visible / off-style.** Replaced the single
+  muted line with the same `[key] label` row style the sidebar uses
+  (accent-bold key brackets + dim labels, packed greedily). Also fixed
+  a 1-row off-by-one in the inner height budget so the hint row sits at
+  the bottom of the panel without leaving a blank gap above the status
+  bar.
+
 ## [0.17.0] – 2026-04-26
 
 ### Changed

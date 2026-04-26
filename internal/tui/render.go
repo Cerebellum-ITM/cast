@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Cerebellum-ITM/cast/internal/config"
 	"github.com/Cerebellum-ITM/cast/internal/source"
@@ -39,7 +40,7 @@ func (m Model) renderMain() string {
 	}
 
 	hdr := m.renderHeader(p)
-	bdy := clampToHeight(m.renderBody(p, bodyH, centerW), bodyH)
+	bdy := m.renderBody(p, bodyH, centerW)
 	sts := views.StatusBar(p, len(m.commands), m.makefilePath, m.width)
 	// No explicit frame Background: the cast UI is intentionally
 	// "transparent" over the terminal so structural cells (panel
@@ -48,6 +49,16 @@ func (m Model) renderMain() string {
 	// emphasis only — selected items (BgSelected), shortcut badges,
 	// and tag chips. Anything else MUST stay bg-less so the theme
 	// composes cleanly with whatever terminal palette the user runs.
+	//
+	// Each band gets a hard fit to its budgeted slot. Without this, a
+	// header that grows past `headerH` rows (because pills overflow on a
+	// narrow terminal) or a body line that exceeds `m.width` (because the
+	// terminal wraps it) would shove the status bar off-screen. The
+	// status bar is the most important persistent surface — it must
+	// remain visible at every terminal size.
+	hdr = fitFrame(hdr, m.width, headerH)
+	bdy = fitFrame(bdy, m.width, bodyH)
+	sts = fitFrame(sts, m.width, statusH)
 	full := hdr + "\n" + bdy + "\n" + sts
 
 	if m.showPicker {
@@ -576,4 +587,26 @@ func clampToHeight(s string, h int) string {
 		return s
 	}
 	return strings.Join(lines[:h], "\n")
+}
+
+// fitFrame forces s to render in exactly w columns by h rows. Lines longer
+// than w are ANSI-truncated (preserving SGR sequences); shorter outputs
+// gain blank padding rows so downstream concatenation aligns. Fewer
+// columns than the natural content width clip the right edge instead of
+// wrapping — wrapping would cascade into more vertical rows and push the
+// status bar off-screen on narrow terminals.
+func fitFrame(s string, w, h int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	for i, line := range lines {
+		if lipgloss.Width(line) > w {
+			lines[i] = ansi.Truncate(line, w, "")
+		}
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
