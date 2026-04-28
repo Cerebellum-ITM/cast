@@ -1047,6 +1047,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case k == m.keys.Quit:
 		return m.quitOrCancel()
+	case k == m.keys.QuitAlt:
+		return m.quitOrCancel()
 	case k == m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % tabCount
 	case k == m.keys.TabPrev:
@@ -1203,6 +1205,8 @@ func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q", "esc":
 		m.activeTab = TabCommands
 		return m, nil
+	case m.keys.QuitAlt:
+		return m.quitOrCancel()
 	case "tab", m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % tabCount
 		return m, nil
@@ -1308,7 +1312,7 @@ func (m Model) handleLibraryKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.activeTab = TabCommands
 		return m, nil
-	case "q":
+	case "q", m.keys.QuitAlt:
 		return m.quitOrCancel()
 	case "tab", m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % tabCount
@@ -2020,7 +2024,7 @@ func (m Model) handleEnvKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Quit
-	case "q":
+	case "q", m.keys.QuitAlt:
 		return m.quitOrCancel()
 	case "tab", m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % tabCount

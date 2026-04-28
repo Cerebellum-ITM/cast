@@ -130,7 +130,7 @@ fuzzy search and a side-by-side preview. Keybinds inside the tab:
 | `d` | Arm delete; second `d` or `⏎` confirms |
 | `esc` | Cancel delete or close tab |
 
-From the `commands` tab, `ctrl+x` extracts the highlighted target and
+From the `commands` tab, `ctrl+y` extracts the highlighted target and
 saves it to the library (round-trips back through `library.Save`, which
 normalises the `## name:` doc-line so the basename and the embedded name
 stay in sync).

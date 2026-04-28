@@ -8,6 +8,27 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.20.0] – 2026-04-28
+
+### Added
+
+- **`ctrl+x` is now an alias of `q`** (Quit / cancel-chain). Useful when
+  the search input has focus and `q` would be typed as text — `ctrl+x`
+  always exits regardless of where the cursor is, the same way `ctrl+c`
+  always cancels.
+
+### Changed
+
+- **`ExtractSnippet` moved from `ctrl+x` to `ctrl+y`** to free up
+  `ctrl+x` for the new Quit alias. The behaviour is unchanged: from the
+  `commands` tab, `ctrl+y` extracts the highlighted target and saves it
+  to the global snippets library.
+
+  ```text
+  ctrl+y   on a target in the commands tab → save it to the library
+  ctrl+x   exit cast (synonym of q)
+  ```
+
 ## [0.19.1] – 2026-04-26
 
 ### Changed

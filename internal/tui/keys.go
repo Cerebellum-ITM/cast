@@ -9,6 +9,7 @@ package tui
 // inside popups, j/k stay available for local scrolling (handled there).
 type KeyMap struct {
 	Quit             string
+	QuitAlt          string // ctrl-key alias of Quit (works while search is focused)
 	TabNext          string
 	TabPrev          string
 	Up               string
@@ -39,6 +40,7 @@ type KeyMap struct {
 // DefaultKeyMap is the out-of-the-box key configuration.
 var DefaultKeyMap = KeyMap{
 	Quit:             "q",
+	QuitAlt:          "ctrl+x",
 	TabNext:          "tab",
 	TabPrev:          "shift+tab",
 	Up:               "up",
@@ -59,7 +61,7 @@ var DefaultKeyMap = KeyMap{
 	SidebarNarrower:  "{",
 	EditShortcut:     "ctrl+k",
 	EditTags:         "ctrl+t",
-	ExtractSnippet:   "ctrl+x",
+	ExtractSnippet:   "ctrl+y",
 	MakefilePageUp:   "pgup",
 	MakefilePageDown: "pgdown",
 	ModeToggle:       "ctrl+s",
