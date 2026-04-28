@@ -45,6 +45,10 @@ type IconSet struct {
 
 	// Library / snippets.
 	Snippet string // each row in the snippets library
+
+	// Quit sentinel rendered in the sidebar CHAIN block when the user has
+	// queued an exit mid-run.
+	Quit string
 }
 
 // Icons returns the icon set for the requested style.
@@ -63,6 +67,7 @@ func Icons(style IconStyle) IconSet {
 			Folder:        "📁",
 			PickerTitle:   "📁",
 			Snippet:       "📋",
+			Quit:          "⏻",
 		}
 	}
 	// Nerd Font (default). Codepoints come from the Nerd Fonts cheat sheet
@@ -81,5 +86,6 @@ func Icons(style IconStyle) IconSet {
 		Folder:        "",  // nf-fa-folder
 		PickerTitle:   "",  // nf-fa-folder_open
 		Snippet:       "",  // nf-fa-code (snippet / library)
+		Quit:          "⏻", // nf-md-power (queued-quit sentinel)
 	}
 }

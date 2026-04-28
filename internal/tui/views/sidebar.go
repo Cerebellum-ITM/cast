@@ -34,6 +34,11 @@ type SidebarProps struct {
 	// the step currently executing.
 	QueueCommands []string
 	CurrentStep   int
+	// QueueQuit signals that the user has queued an exit after the chain
+	// drains. Rendered as a dimmed `⏻ quit` chip below the step list and
+	// excluded from the (N) count on the CHAIN header.
+	QueueQuit bool
+	IconStyle IconStyle
 
 	// LastRunCmds is the persisted "rerun" target rendered as a card pinned
 	// at the top of the command list. Single-element slice => single
@@ -56,8 +61,8 @@ func Sidebar(p Palette, props SidebarProps) string {
 	)
 
 	var queueBlock []string
-	if len(props.QueueCommands) > 1 {
-		queueBlock = renderQueueBlock(p, props.QueueCommands, props.CurrentStep, w)
+	if len(props.QueueCommands) > 1 || (props.QueueQuit && len(props.QueueCommands) >= 1) {
+		queueBlock = renderQueueBlock(p, props.QueueCommands, props.CurrentStep, w, props.QueueQuit, props.IconStyle)
 	}
 
 	var rerunBlock []string
@@ -152,7 +157,7 @@ func renderRerunCard(p Palette, cmds []string, isPick, focused bool, w int) []st
 // renderQueueBlock renders a compact list of the in-flight chain steps with
 // the current step highlighted. Steps already done are dimmed, pending ones
 // are faint, the running one is bold with a ▶ marker.
-func renderQueueBlock(p Palette, steps []string, current, w int) []string {
+func renderQueueBlock(p Palette, steps []string, current, w int, quitQueued bool, iconStyle IconStyle) []string {
 	title := lipgloss.NewStyle().Width(w).Padding(0, 1).
 		Foreground(p.Accent).Bold(true).
 		Render("CHAIN (" + itoa(len(steps)) + ")")
@@ -186,6 +191,13 @@ func renderQueueBlock(p Palette, steps []string, current, w int) []string {
 		name := lipgloss.NewStyle().Foreground(nameFg).Bold(bold).
 			Render(Truncate(s, avail))
 		rows = append(rows, rowStyle.Render(marker+num+" "+name))
+	}
+	if quitQueued {
+		icon := Icons(iconStyle).Quit
+		marker := lipgloss.NewStyle().Foreground(p.Accent).Render(icon + " ")
+		label := lipgloss.NewStyle().Foreground(p.FgDim).Italic(true).
+			Render(Truncate("quit", avail))
+		rows = append(rows, rowStyle.Render(marker+label))
 	}
 	return rows
 }

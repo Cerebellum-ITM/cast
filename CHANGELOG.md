@@ -8,6 +8,29 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.19.1] – 2026-04-26
+
+### Changed
+
+- **Quit (`q`) is now queued mid-run instead of killing the TUI on the
+  spot.** Pressing `q` while a command is running no longer abruptly tears
+  down cast and orphans the child process. The new behaviour mirrors how
+  `Enter` mid-run extends the active chain:
+  - **Non-stream commands**: `q` appends a synthetic *quit* step to the
+    end of the chain. Cast keeps running every queued step (whether
+    enqueued before or after the `q`) and exits cleanly once the chain
+    drains. The status bar shows `quit queued — exits when chain
+    finishes` and a dimmed `⏻ quit` chip is rendered under the
+    sidebar's `CHAIN (N)` block (the chip is **not** counted in `N`).
+  - **`[stream]` commands** (e.g. `docker logs -f`): cancellation is
+    immediate (SIGINT → SIGKILL via the same watchdog `ctrl+c` uses)
+    because streams typically never end on their own. The cancelled run
+    is recorded in history as `interrupted`, then cast exits.
+  - Double-tapping `q` is idempotent — it does **not** escalate to a
+    process kill on a non-stream run.
+  - `ctrl+c` keeps its existing behaviour: cancel the active command
+    without exiting cast.
+
 ## [0.19.0] – 2026-04-26
 
 ### Added

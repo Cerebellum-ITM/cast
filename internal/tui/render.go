@@ -314,9 +314,23 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 
 	var queueCmds []string
 	curStep := 0
+	queueQuit := false
 	if len(m.chainCommands) > 1 {
-		queueCmds = m.chainCommands
+		// The quit sentinel is rendered as a dedicated chip below the real
+		// steps — keep it out of the numbered list so the (N) count and
+		// step indices reflect actual commands.
+		queueCmds = make([]string, 0, len(m.chainCommands))
+		for _, c := range m.chainCommands {
+			if c == quitSentinel {
+				queueQuit = true
+				continue
+			}
+			queueCmds = append(queueCmds, c)
+		}
 		curStep = m.chainStepIdx
+	} else if m.quitPending && m.running {
+		// Stream-cancel path: chain has only the active step + sentinel.
+		queueQuit = true
 	}
 	var lastRunCmds []string
 	var lastRunIsPick bool
@@ -339,6 +353,8 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 		ChainChecked:   m.chainChecked,
 		QueueCommands:  queueCmds,
 		CurrentStep:    curStep,
+		QueueQuit:      queueQuit,
+		IconStyle:      m.iconStyle,
 		LastRunCmds:    lastRunCmds,
 		LastRunIsPick:  lastRunIsPick,
 		LastRunFocused: m.rerunFocused,

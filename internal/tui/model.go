@@ -207,6 +207,13 @@ type Model struct {
 	streaming   bool               // current run is a long-lived log stream
 	livePulse   bool               // flipped each tick for LIVE dot animation
 	interrupted bool               // current/last run was manually canceled
+	// quitPending is set when the user pressed Quit while a command was
+	// running. For [stream] commands the active run is cancelled
+	// immediately (registered as interrupted in history); for everything
+	// else a quitSentinel step is appended to the chain, so Quit waits for
+	// queued work to finish. Either way, tea.Quit is fired from the
+	// runner.DoneMsg handler when the chain finally drains.
+	quitPending bool
 
 	// Chain / queue state. A chain is any run where len(chainCommands) > 1.
 	// While any command is running, additional shortcuts/triggers append to
@@ -636,14 +643,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// chain even if a middle step failed.
 		if len(m.chainRunIDs) >= 2 {
 			m.persistChain(run.Status)
-			m.lastRunCommands = append([]string(nil), m.chainCommands...)
+			// Filter the sentinel before persisting "last run" so Ctrl+R
+			// re-runs the real steps and not the queued exit.
+			persistCmds := make([]string, 0, len(m.chainCommands))
+			for _, c := range m.chainCommands {
+				if c == quitSentinel {
+					continue
+				}
+				persistCmds = append(persistCmds, c)
+			}
+			m.lastRunCommands = persistCmds
 			m.lastRunExtraVars = m.lastRunExtraVars[:0]
 			m.hasLastRun = true
-			m.persistLastRun(m.chainCommands, nil)
+			m.persistLastRun(persistCmds, nil)
 		}
 		m.chainCommands = nil
 		m.chainStepIdx = -1
 		m.chainRunIDs = m.chainRunIDs[:0]
+		if m.quitPending {
+			// User pressed Quit during this chain. Whether the sentinel
+			// was reached organically (drained advanceChain) or the chain
+			// died early (failure/interrupt discarded the rest), exit
+			// once the persisted-state work is done.
+			m.quitPending = false
+			m.running = false
+			m.streaming = false
+			return m, tea.Quit
+		}
 		loadChains := m.loadChainsCmd()
 		done := func() tea.Msg { return RunDoneMsg{Status: run.Status, Run: run} }
 		if loadChains == nil {
@@ -750,6 +776,62 @@ func (m Model) View() tea.View {
 }
 
 // --- key handling ------------------------------------------------------------
+
+// quitSentinel is a synthetic chain step that means "exit cast". It is
+// appended to m.chainCommands when the user presses Quit during a non-stream
+// run, so the queued exit waits for any in-flight or pending steps to finish
+// before tearing down the program. advanceChain intercepts the value before
+// it can be dispatched as a make target.
+const quitSentinel = "__cast:quit__"
+
+// quitOrCancel handles the Quit keystroke.
+//
+//   - Idle: exits immediately.
+//   - Stream run: cancels the active process (SIGINT → SIGKILL via the runner
+//     watchdog) and lets the resulting DoneMsg flow through normally so the
+//     run is recorded as interrupted in history. The DoneMsg handler then
+//     fires tea.Quit because m.quitPending is true.
+//   - Non-stream run: appends quitSentinel to m.chainCommands so the exit
+//     queues behind the running step and any commands the user enqueued with
+//     Enter mid-run. advanceChain catches the sentinel and emits tea.Quit.
+//   - Interactive (running but no runCancel): can normally not be reached
+//     because tea.ExecProcess suspends the TUI; if it ever is, fall through
+//     to plain tea.Quit since the child either already exited or owns stdin.
+//
+// Idempotent: a second Quit while quitPending is already set is a no-op so
+// double-tapping `q` does not escalate into a process kill on a non-stream
+// run.
+func (m Model) quitOrCancel() (tea.Model, tea.Cmd) {
+	if !m.running {
+		return m, tea.Quit
+	}
+	if m.quitPending {
+		return m, nil
+	}
+	m.quitPending = true
+	if m.streaming && m.runCancel != nil {
+		m.runCancel()
+		m.runCancel = nil
+		m.interrupted = true
+		notice := m.setNotice("quit pending — cancelling stream", views.NoticeInfo)
+		return m, notice
+	}
+	if m.runCancel == nil {
+		// Defensive: running but no cancel handle (interactive transition).
+		// Nothing to wait on — just exit.
+		return m, tea.Quit
+	}
+	if m.chainStepIdx < 0 {
+		// A solo command is running without a chain context yet. Seed the
+		// chain so the running step is at index 0 and the sentinel sits at
+		// index 1, ready for advanceChain to pick up on DoneMsg.
+		m.chainCommands = []string{m.lastRunCmd}
+		m.chainStepIdx = 0
+	}
+	m.chainCommands = append(m.chainCommands, quitSentinel)
+	notice := m.setNotice("quit queued — exits when chain finishes", views.NoticeInfo)
+	return m, notice
+}
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.showPicker {
@@ -964,7 +1046,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case k == m.keys.Quit:
-		return m, tea.Quit
+		return m.quitOrCancel()
 	case k == m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % tabCount
 	case k == m.keys.TabPrev:
@@ -1227,7 +1309,7 @@ func (m Model) handleLibraryKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.activeTab = TabCommands
 		return m, nil
 	case "q":
-		return m, tea.Quit
+		return m.quitOrCancel()
 	case "tab", m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % tabCount
 		return m, nil
@@ -1939,7 +2021,7 @@ func (m Model) handleEnvKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case "q":
-		return m, tea.Quit
+		return m.quitOrCancel()
 	case "tab", m.keys.TabNext:
 		m.activeTab = (m.activeTab + 1) % tabCount
 	case m.keys.TabPrev:
@@ -2257,6 +2339,12 @@ func (m *Model) enqueueCommand(name string) {
 func (m Model) advanceChain() (tea.Model, tea.Cmd, bool) {
 	next := m.chainStepIdx + 1
 	if next >= len(m.chainCommands) {
+		return m, nil, false
+	}
+	if m.chainCommands[next] == quitSentinel {
+		// Drain reached the queued Quit. Stop here so the DoneMsg handler
+		// runs persistChain on the real steps and then returns tea.Quit
+		// because m.quitPending is set.
 		return m, nil, false
 	}
 	m.chainStepIdx = next
