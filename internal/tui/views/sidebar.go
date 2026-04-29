@@ -452,7 +452,7 @@ func renderHintsRow(p Palette, w int, mode int, builder bool) string {
 	case mode == 1:
 		hints = [][2]string{{"↑↓", "nav"}, {"⏎", "re-run"}, {"ctrl+s", "single"}, {"q", "quit"}}
 	default:
-		hints = [][2]string{{"↑↓", "nav"}, {"⏎", "run"}, {"/", "search"}, {"ctrl+s", "mode"}, {"ctrl+a", "chain"}, {"q", "quit"}}
+		hints = [][2]string{{"↑↓", "nav"}, {"⏎", "run"}, {"/", "search"}, {"ctrl+s", "mode"}, {"ctrl+a", "chain"}, {"ctrl+d", "delete"}, {"q", "quit"}}
 	}
 	avail := w - 2
 	rowStyle := lipgloss.NewStyle().Width(w).Padding(0, 1)

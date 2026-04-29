@@ -176,6 +176,13 @@ type Model struct {
 	// confirmModalSel: 0 = cancel button, 1 = confirm button. Reset to 1 each
 	// time the modal opens so default-Enter still confirms.
 	confirmModalSel int
+
+	// Delete-command popup. Shown when the user presses DeleteCommand on
+	// the commands tab. The selected command is captured at open time so
+	// later cursor moves don't change which target gets removed.
+	showDeleteCmdConfirm bool
+	deleteCmdConfirmSel  int    // 0 cancel, 1 confirm
+	deleteCmdName        string
 	lastRunCmd  string // current/most-recent step name (used by output header & history)
 	// lastRunCommands is the ordered list of targets dispatched on the user's
 	// most recent action: one name for a single run, ≥2 for a chain. This is
@@ -840,6 +847,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.showConfirm {
 		return m.handleConfirmModal(msg)
 	}
+	if m.showDeleteCmdConfirm {
+		return m.handleDeleteCmdModal(msg)
+	}
 	if m.showOutputExpand {
 		return m.handleExpandedOutput(msg)
 	}
@@ -1140,6 +1150,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case k == m.keys.ExtractSnippet:
 		if m.activeTab == TabCommands && len(m.filtered) > 0 {
 			return m.extractCurrentToLibrary()
+		}
+		return m, nil
+	case k == m.keys.DeleteCommand:
+		if m.activeTab == TabCommands && m.mode == ModeSingle && !m.chainBuilder &&
+			!m.running && len(m.filtered) > 0 && m.selected < len(m.filtered) {
+			m.deleteCmdName = m.filtered[m.selected].Name
+			m.deleteCmdConfirmSel = 1
+			m.showDeleteCmdConfirm = true
 		}
 		return m, nil
 	case k == m.keys.MakefilePageUp:
@@ -1790,6 +1808,73 @@ func (m Model) handleConfirmModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.dispatchRun()
 	}
 	return m, nil
+}
+
+// handleDeleteCmdModal routes input while the delete-command popup is open.
+// Mirrors handleConfirmModal so the keybinds feel identical: ←/→ move,
+// tab swaps focus, enter commits the focused button, y/n are direct hotkeys.
+// Default focus is "cancel" — destructive defaults must require an explicit
+// move before Enter deletes anything.
+func (m Model) handleDeleteCmdModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := msg.String()
+	switch k {
+	case "left", "h":
+		m.deleteCmdConfirmSel = 0
+		return m, nil
+	case "right", "l":
+		m.deleteCmdConfirmSel = 1
+		return m, nil
+	case "tab":
+		m.deleteCmdConfirmSel = 1 - m.deleteCmdConfirmSel
+		return m, nil
+	}
+	switch k {
+	case "esc", "n":
+		m.showDeleteCmdConfirm = false
+		m.deleteCmdName = ""
+		return m, nil
+	case "enter":
+		if m.deleteCmdConfirmSel == 0 {
+			m.showDeleteCmdConfirm = false
+			m.deleteCmdName = ""
+			return m, nil
+		}
+		fallthrough
+	case "y":
+		return m.commitDeleteCommand()
+	}
+	return m, nil
+}
+
+// commitDeleteCommand removes the staged target from the Makefile on disk,
+// reloads the in-memory command list, and surfaces a status notice. Cursor
+// is clamped to the new list length so the sidebar stays valid.
+func (m Model) commitDeleteCommand() (tea.Model, tea.Cmd) {
+	name := m.deleteCmdName
+	m.showDeleteCmdConfirm = false
+	m.deleteCmdName = ""
+	if name == "" || m.makefilePath == "" {
+		return m, nil
+	}
+	if err := source.RemoveMakefileTarget(m.makefilePath, name); err != nil {
+		notice := m.setNotice("delete failed: "+err.Error(), views.NoticeError)
+		return m, notice
+	}
+	src := &source.MakefileSource{Path: m.makefilePath}
+	if cmds, err := src.Load(); err == nil {
+		m.commands = cmds
+		m.filtered = filterCommands(m.commands, m.search)
+	}
+	if m.selected >= len(m.filtered) {
+		if len(m.filtered) > 0 {
+			m.selected = len(m.filtered) - 1
+		} else {
+			m.selected = 0
+		}
+	}
+	m.makefileLines = loadFileLines(m.makefilePath)
+	notice := m.setNotice("deleted '"+name+"' from Makefile", views.NoticeInfo)
+	return m, notice
 }
 
 func (m Model) handleExpandedOutput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

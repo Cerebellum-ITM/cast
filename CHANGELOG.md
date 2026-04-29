@@ -8,6 +8,32 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.21.0] – 2026-04-28
+
+### Added
+
+- **Delete a Makefile target from the TUI.** From the `commands` tab,
+  press `ctrl+d` on the highlighted target to open a confirmation popup
+  styled like the run-confirm modal. Confirming rewrites the Makefile on
+  disk (the target's `## name: …` doc-line, the rule, and its recipe are
+  removed) and refreshes the sidebar in place. The popup is disabled
+  while a command is running, while the chain builder is active, and in
+  chain mode. The commands-tab sidebar hints row now lists `ctrl+d`
+  alongside the other bindings.
+
+  ```text
+  ctrl+d   on a target in the commands tab → open delete-confirm popup
+  ⏎ / y    confirm   esc / n   cancel   ←/→   move focus
+  ```
+
+### Changed
+
+- `views.Modal` is now a thin wrapper over a generic
+  `views.ConfirmModal(p, props)`. Both the run-confirm and the new
+  delete-command popup share the same border, button, and hint layout
+  (accented `[key]` chips matching the sidebar hint style) so
+  destructive flows always look familiar.
+
 ## [0.20.0] – 2026-04-28
 
 ### Added

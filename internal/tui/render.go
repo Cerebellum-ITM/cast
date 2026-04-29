@@ -99,6 +99,11 @@ func (m Model) renderMain() string {
 		return views.OverlayCenter(full, box)
 	}
 
+	if m.showDeleteCmdConfirm && m.deleteCmdName != "" {
+		box := views.DeleteCommandModal(p, m.deleteCmdName, m.deleteCmdConfirmSel)
+		return views.OverlayCenter(full, box)
+	}
+
 	if m.showTagsPopup {
 		box := views.TagsPopup(p, views.TagsPopupProps{
 			CmdName:    m.tagsPopupName,

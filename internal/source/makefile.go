@@ -668,6 +668,59 @@ func AppendMakefileTarget(path, snippetBody string) error {
 	return os.Rename(tmp, path)
 }
 
+// RemoveMakefileTarget reads path, locates target `name` (including its
+// leading `## name: …` doc-line if present), removes those lines from the
+// file, and writes it back atomically. Surrounding blank lines are
+// collapsed so deleting a target doesn't leave a stack of empty rows.
+// Returns ErrTargetNotFound when name is absent.
+func RemoveMakefileTarget(path, name string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("makefile: read %s: %w", path, err)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	section := MakefileTargetLines(lines, name)
+	if section == nil {
+		return fmt.Errorf("%w: %s", ErrTargetNotFound, name)
+	}
+	startIdx := -1
+	for i := 0; i+len(section) <= len(lines); i++ {
+		match := true
+		for j := range section {
+			if lines[i+j] != section[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			startIdx = i
+			break
+		}
+	}
+	if startIdx == -1 {
+		return fmt.Errorf("%w: %s", ErrTargetNotFound, name)
+	}
+	endIdx := startIdx + len(section)
+	// Drop a single trailing blank line (if any) so consecutive deletes
+	// don't accumulate empty rows. The leading blank stays — it preserves
+	// separation from whatever target now precedes the cut.
+	if endIdx < len(lines) && strings.TrimSpace(lines[endIdx]) == "" {
+		endIdx++
+	}
+	out := append([]string{}, lines[:startIdx]...)
+	out = append(out, lines[endIdx:]...)
+
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(strings.Join(out, "\n"), "\n"))
+	b.WriteString("\n")
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("makefile: write %s: %w", path, err)
+	}
+	return os.Rename(tmp, path)
+}
+
 // ExtractMakefileTarget reads path, locates target `name` (including its
 // leading `## name: …` doc-line if present), and returns the verbatim
 // snippet body terminated with a newline. ErrTargetNotFound when name is
