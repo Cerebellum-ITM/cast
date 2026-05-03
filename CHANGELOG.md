@@ -8,6 +8,26 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.23.0] – 2026-05-03
+
+### Changed
+
+- **Progress bar now reflects real progress.** The previous fake
+  animation that crept to 90% on a fixed timer is gone. The bar now
+  uses a hybrid signal:
+  - When the running target has a successful entry in history, the
+    bar advances proportional to `elapsed / lastDuration`, so a
+    repeated run visibly tracks against its previous time.
+  - When there is no history, the bar bumps on every output line
+    (each line covers 5% of the remaining gap, asymptote ~95%) so it
+    always reflects activity rather than a clock.
+  - Streaming commands (`[stream]`) keep the bar pinned at 100% as
+    before — indeterminate runs have no ETA to estimate.
+  - On completion the bar snaps to 100%, same as before.
+
+  No new keybindings or config; the change is automatic and only
+  affects the existing run progress indicator.
+
 ## [0.22.0] – 2026-05-03
 
 ### Changed

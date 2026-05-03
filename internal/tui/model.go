@@ -171,7 +171,13 @@ type Model struct {
 	// Execution state
 	running     bool
 	runProgress float64
-	output      []string
+	// runEstimatedDur is the expected wall-clock duration of the current
+	// run, captured at RunStartMsg from the most recent successful history
+	// entry for the same target. Drives the time-proportional progress bar
+	// when non-zero; left at 0 when no usable history exists, in which case
+	// the bar advances purely from per-line OutputMsg bumps.
+	runEstimatedDur time.Duration
+	output          []string
 	showConfirm bool
 	// confirmModalSel: 0 = cancel button, 1 = confirm button. Reset to 1 each
 	// time the modal opens so default-Enter still confirms.
@@ -591,6 +597,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.output = nil
 		m.lastRunCmd = msg.Command
 		m.runStartedAt = time.Now()
+		m.runEstimatedDur = m.lastSuccessfulDuration(msg.Command)
 		return m, tea.Batch(m.spinner.Tick, tickCmd())
 
 	case runner.OutputMsg:
@@ -624,6 +631,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.outputView.GotoBottom()
+		if m.running && !m.streaming {
+			// Each output line covers 5% of the remaining gap, so the bar
+			// always reflects activity without ever reaching 1.0 before the
+			// run actually ends (clampProgress caps at 0.95).
+			const lineBumpFactor = 0.05
+			m.runProgress = clampProgress(m.runProgress + (1.0-m.runProgress)*lineBumpFactor)
+		}
 		return m, waitNext(m.streamCh)
 
 	case runner.DoneMsg:
@@ -706,6 +720,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.streaming = false
 		m.runProgress = 1.0
+		m.runEstimatedDur = 0
 		m.hasLastRun = true
 		m.lastRunOK = msg.Status == db.StatusSuccess
 		// History already prepended per-step in the runner.DoneMsg handler.
@@ -762,8 +777,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.livePulse = !m.livePulse
 			// keep progress bar full while streaming — indeterminate runs have no ETA
 			m.runProgress = 1.0
-		} else {
-			m.runProgress = clampProgress(m.runProgress + 0.02)
+		} else if m.runEstimatedDur > 0 {
+			// History-based estimate: progress = elapsed / lastDuration.
+			// Only advances the bar — never rolls it back below the value
+			// already reached via per-line bumps in the OutputMsg handler.
+			elapsed := time.Since(m.runStartedAt)
+			base := float64(elapsed) / float64(m.runEstimatedDur)
+			if base > m.runProgress {
+				m.runProgress = clampProgress(base)
+			}
 		}
 		return m, tickCmd()
 
@@ -2777,6 +2799,26 @@ func equalFold(a, b string) bool {
 		}
 	}
 	return true
+}
+
+// lastSuccessfulDuration returns the duration of the most recent successful
+// run of cmdName found in the in-memory history, or 0 when no usable entry
+// exists. Used to seed the progress bar's time-proportional estimate at run
+// start. Failed/interrupted runs are skipped so a botched previous attempt
+// can't poison the ETA.
+func (m Model) lastSuccessfulDuration(cmdName string) time.Duration {
+	if cmdName == "" {
+		return 0
+	}
+	for _, r := range m.history {
+		if r.Command != cmdName || r.Status != db.StatusSuccess {
+			continue
+		}
+		if r.Duration > 0 {
+			return r.Duration
+		}
+	}
+	return 0
 }
 
 func clampProgress(v float64) float64 {
