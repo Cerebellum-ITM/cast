@@ -413,6 +413,22 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 	}
 }
 
+// syncMakefilePreviewToSelection scrolls the inline Makefile preview so the
+// currently selected command's target lines are visible at the top. Called
+// whenever m.selected (or the filtered slice) changes so the preview follows
+// the cursor in the sidebar. No-op when no command is selected or the target
+// can't be located in the loaded Makefile.
+func (m *Model) syncMakefilePreviewToSelection() {
+	if len(m.filtered) == 0 || m.selected < 0 || m.selected >= len(m.filtered) {
+		return
+	}
+	idx := source.MakefileTargetLineIndex(m.makefileLines, m.filtered[m.selected].Name)
+	if idx < 0 {
+		return
+	}
+	m.makefileOffset = idx
+}
+
 // outputPanelW returns the output panel width in columns, derived from the
 // percentage preference. Includes the left divider char.
 func (m Model) outputPanelW() int {
@@ -555,11 +571,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SplashDoneMsg:
 		m.state = StateMain
+		m.syncMakefilePreviewToSelection()
 		return m, nil
 
 	case tea.KeyPressMsg:
 		if m.state == StateSplash {
 			m.state = StateMain
+			m.syncMakefilePreviewToSelection()
 			return m, nil
 		}
 		return m.handleKey(msg)
@@ -898,6 +916,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.selected = i
+				m.syncMakefilePreviewToSelection()
 				return m.triggerRun()
 			}
 		}
@@ -1070,23 +1089,27 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.rerunFocused = true
 		} else if m.selected > 0 {
 			m.selected--
+			m.syncMakefilePreviewToSelection()
 		}
 	case k == m.keys.Down:
 		if m.rerunFocused {
 			m.rerunFocused = false
 		} else if m.selected < len(m.filtered)-1 {
 			m.selected++
+			m.syncMakefilePreviewToSelection()
 		}
 	case k == m.keys.Top:
 		if m.hasRerunCard() {
 			m.rerunFocused = true
 		} else {
 			m.selected = 0
+			m.syncMakefilePreviewToSelection()
 		}
 	case k == m.keys.Bottom:
 		m.rerunFocused = false
 		if len(m.filtered) > 0 {
 			m.selected = len(m.filtered) - 1
+			m.syncMakefilePreviewToSelection()
 		}
 	case k == m.keys.Search:
 		m.searchInput.Focus()
@@ -1506,6 +1529,7 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.search = ""
 		m.filtered = m.commands
 		m.selected = 0
+		m.syncMakefilePreviewToSelection()
 		return m, nil
 	case "enter":
 		m.searchInput.Blur()
@@ -1517,6 +1541,7 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.search = m.searchInput.Value()
 	m.filtered = filterCommands(m.commands, m.search)
 	m.selected = 0
+	m.syncMakefilePreviewToSelection()
 	return m, cmd
 }
 
@@ -1873,6 +1898,7 @@ func (m Model) commitDeleteCommand() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.makefileLines = loadFileLines(m.makefilePath)
+	m.syncMakefilePreviewToSelection()
 	notice := m.setNotice("deleted '"+name+"' from Makefile", views.NoticeInfo)
 	return m, notice
 }

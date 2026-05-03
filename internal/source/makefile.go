@@ -557,6 +557,23 @@ func autoShortcut(name string, existing []Command) string {
 	return ""
 }
 
+// MakefileTargetLineIndex returns the index in lines where target name
+// begins — the leading `## name: …` doc-line if present directly above the
+// rule, otherwise the bare `name:` declaration. Returns -1 when not found.
+func MakefileTargetLineIndex(lines []string, name string) int {
+	if len(lines) == 0 || name == "" {
+		return -1
+	}
+	idx := findTargetIndex(lines, name)
+	if idx == -1 {
+		return -1
+	}
+	if idx > 0 && strings.Contains(lines[idx-1], "## "+name) {
+		return idx - 1
+	}
+	return idx
+}
+
 // MakefileTargetLines returns the contiguous slice of lines that make up
 // target `name` in `lines`: the leading `## name: …` doc-line (if present
 // directly above the target), the bare `name:` declaration, and every

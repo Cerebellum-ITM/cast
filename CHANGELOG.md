@@ -8,6 +8,18 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.22.0] – 2026-05-03
+
+### Changed
+
+- **Commands tab: Makefile preview follows the sidebar cursor.** Moving
+  the selection in the command list (↑/↓, `g`/`G`, search results, or a
+  shortcut hit) now scrolls the inline Makefile preview to the top of
+  the highlighted target's `## name: …` doc-line so the recipe is
+  visible without manual paging. The `MakefilePageUp/Down` keys still
+  work between selection changes; the next navigation snaps the
+  preview back to the cursor.
+
 ## [0.21.0] – 2026-04-28
 
 ### Added
