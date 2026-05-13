@@ -46,11 +46,15 @@ prune anything stale):
 
 ## Next Up
 
-- **Unit 01 — stream-popup-fullscreen-copy** (spec written at
-  `context/specs/01-stream-popup-fullscreen-copy.md`). Implements
-  global `ctrl+x` quit inside the popup, a second-`ctrl+e`
-  fullscreen mode that preserves the status bar, and OSC52 copy
-  with `y`.
+- TBD — pick the next unit and run `/spec-driven-dev spec 02 <name>`.
+
+## Recently Completed (post-adoption)
+
+- **Unit 01 — stream-popup-fullscreen-copy** (shipped in v0.24.0,
+  2026-05-12). Output popup now respects `ctrl+x` global quit, cycles
+  Hidden → Popup → Fullscreen via `ctrl+e` (status bar pinned in
+  fullscreen), and copies the buffer via OSC52 with `y`. Spec at
+  `context/specs/01-stream-popup-fullscreen-copy.md`.
 
 ## Open Questions
 

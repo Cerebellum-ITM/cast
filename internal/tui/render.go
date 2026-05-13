@@ -115,17 +115,20 @@ func (m Model) renderMain() string {
 		return views.OverlayCenter(full, box)
 	}
 
-	if m.showOutputExpand {
-		popupW := m.width - 8
-		if popupW < 40 {
-			popupW = 40
-		}
-		popupH := m.height - 4
-		if popupH < 10 {
-			popupH = 10
-		}
-		box := views.ExpandedOutput(p, m.output, m.outputExpandOff, popupW, popupH, m.lastRunCmd)
+	switch m.outputExpandMode {
+	case outputExpandPopup:
+		popupW := m.outputExpandPopupW()
+		popupH := m.outputExpandPopupH()
+		box := views.ExpandedOutput(p, m.output, m.outputExpandOff, popupW, popupH, m.lastRunCmd, false)
 		return views.OverlayCenter(full, box)
+	case outputExpandFullscreen:
+		// Compose the box over its own band and reuse the existing status
+		// bar so it stays pinned at the bottom regardless of mode.
+		popupW := m.outputExpandPopupW()
+		popupH := m.outputExpandPopupH()
+		box := views.ExpandedOutput(p, m.output, m.outputExpandOff, popupW, popupH, m.lastRunCmd, true)
+		box = fitFrame(box, m.width, popupH)
+		return box + "\n" + sts
 	}
 
 	if m.showMakefileExpand {

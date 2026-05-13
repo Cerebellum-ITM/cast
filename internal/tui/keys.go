@@ -22,6 +22,7 @@ type KeyMap struct {
 	RerunLast        string
 	ToggleSecrets    string
 	ExpandOutput     string
+	CopyOutput       string // copy the full output buffer to the clipboard via OSC52 (popup only)
 	ExpandMakefile   string
 	EnvRestore       string // restore selected history entry (env tab only)
 	OutputWider      string // grow the output panel
@@ -54,6 +55,7 @@ var DefaultKeyMap = KeyMap{
 	RerunLast:        "ctrl+r",
 	ToggleSecrets:    "s",
 	ExpandOutput:     "ctrl+e",
+	CopyOutput:       "y",
 	ExpandMakefile:   "ctrl+o",
 	EnvRestore:       "r",
 	OutputWider:      "]",

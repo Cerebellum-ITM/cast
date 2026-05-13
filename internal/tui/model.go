@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Cerebellum-ITM/cast/internal/config"
 	"github.com/Cerebellum-ITM/cast/internal/db"
@@ -56,6 +57,17 @@ type AppMode int
 const (
 	ModeSingle AppMode = iota
 	ModeChain
+)
+
+// outputExpandMode tracks the three states of the output expand popup.
+// Successive presses of keys.ExpandOutput cycle Hidden → Popup → Fullscreen
+// → Hidden. `esc` always jumps back to Hidden regardless of current state.
+type outputExpandMode int
+
+const (
+	outputExpandHidden outputExpandMode = iota
+	outputExpandPopup
+	outputExpandFullscreen
 )
 
 // --- Messages ----------------------------------------------------------------
@@ -308,8 +320,10 @@ type Model struct {
 	pickerSearch      string
 	pickerBase        string
 
-	// Output expand popup
-	showOutputExpand bool
+	// Output expand popup. Cycles Hidden → Popup → Fullscreen → Hidden on
+	// successive presses of keys.ExpandOutput. Fullscreen keeps the bottom
+	// status bar visible; the header is replaced by the popup box.
+	outputExpandMode outputExpandMode
 	outputExpandOff  int
 
 	// Makefile section expand popup
@@ -605,7 +619,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// line: if the user was scrolled to the bottom (or the buffer is
 		// empty), new lines should keep pulling the view down.
 		follow := true
-		if m.showOutputExpand {
+		if m.outputExpandMode != outputExpandHidden {
 			visH := m.outputExpandVisH()
 			prevMaxOff := len(m.output) - visH
 			if prevMaxOff < 0 {
@@ -622,7 +636,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if m.showOutputExpand && follow {
+		if m.outputExpandMode != outputExpandHidden && follow {
 			visH := m.outputExpandVisH()
 			m.outputExpandOff = len(m.output) - visH
 			if m.outputExpandOff < 0 {
@@ -890,7 +904,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.showDeleteCmdConfirm {
 		return m.handleDeleteCmdModal(msg)
 	}
-	if m.showOutputExpand {
+	if m.outputExpandMode != outputExpandHidden {
 		return m.handleExpandedOutput(msg)
 	}
 	if m.showMakefileExpand {
@@ -1153,7 +1167,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.showSecrets = !m.showSecrets
 		}
 	case k == m.keys.ExpandOutput:
-		return m.toggleOutputExpand()
+		return m.cycleOutputExpand()
 	case k == m.keys.ExpandMakefile:
 		return m.toggleMakefileExpand()
 	case k == m.keys.OutputWider:
@@ -1931,8 +1945,9 @@ func (m Model) handleExpandedOutput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if maxOff < 0 {
 		maxOff = 0
 	}
-	switch msg.String() {
-	case "ctrl+c":
+	key := msg.String()
+	switch {
+	case key == "ctrl+c":
 		// Cancel the running command but keep the popup open so the user can
 		// review the trailing output.
 		if m.running && m.runCancel != nil {
@@ -1942,58 +1957,153 @@ func (m Model) handleExpandedOutput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Quit
-	case "esc", m.keys.ExpandOutput:
-		m.showOutputExpand = false
-	case "up", "k":
+	case key == m.keys.QuitAlt:
+		// Global quit must work from inside the popup too — otherwise users
+		// running long log-following commands get stuck having to esc out
+		// before quitting.
+		return m, tea.Quit
+	case key == m.keys.ExpandOutput:
+		return m.cycleOutputExpand()
+	case key == "esc":
+		m.outputExpandMode = outputExpandHidden
+	case key == m.keys.CopyOutput:
+		return m.copyOutputToClipboard()
+	case key == "up" || key == "k":
 		if m.outputExpandOff > 0 {
 			m.outputExpandOff--
 		}
-	case "down", "j":
+	case key == "down" || key == "j":
 		if m.outputExpandOff < maxOff {
 			m.outputExpandOff++
 		}
-	case "pgup", "ctrl+b":
+	case key == "pgup" || key == "ctrl+b":
 		m.outputExpandOff -= visH
 		if m.outputExpandOff < 0 {
 			m.outputExpandOff = 0
 		}
-	case "pgdown", "ctrl+f", " ":
+	case key == "pgdown" || key == "ctrl+f" || key == " ":
 		m.outputExpandOff += visH
 		if m.outputExpandOff > maxOff {
 			m.outputExpandOff = maxOff
 		}
-	case "g":
+	case key == "g":
 		m.outputExpandOff = 0
-	case "G":
+	case key == "G":
 		m.outputExpandOff = maxOff
 	}
 	return m, nil
 }
 
-func (m Model) toggleOutputExpand() (tea.Model, tea.Cmd) {
-	if m.showOutputExpand {
-		m.showOutputExpand = false
-		return m, nil
-	}
-	m.showOutputExpand = true
-	visH := m.outputExpandVisH()
-	m.outputExpandOff = len(m.output) - visH
-	if m.outputExpandOff < 0 {
-		m.outputExpandOff = 0
+// cycleOutputExpand transitions the output expand popup through the three
+// states Hidden → Popup → Fullscreen → Hidden. Whenever the dimensions
+// change (Popup ↔ Fullscreen) the scroll offset is clamped so the
+// previously-anchored line remains visible.
+func (m Model) cycleOutputExpand() (tea.Model, tea.Cmd) {
+	switch m.outputExpandMode {
+	case outputExpandHidden:
+		m.outputExpandMode = outputExpandPopup
+		visH := m.outputExpandVisH()
+		m.outputExpandOff = len(m.output) - visH
+		if m.outputExpandOff < 0 {
+			m.outputExpandOff = 0
+		}
+	case outputExpandPopup:
+		m.outputExpandMode = outputExpandFullscreen
+		m.outputExpandOff = clampOutputOffset(m.outputExpandOff, len(m.output), m.outputExpandVisH())
+	default:
+		m.outputExpandMode = outputExpandHidden
 	}
 	return m, nil
 }
 
-func (m Model) outputExpandVisH() int {
-	popupH := m.height - 4
-	if popupH < 10 {
-		popupH = 10
+// copyOutputToClipboard sends the full output buffer (ANSI-stripped) to
+// the system clipboard via the OSC52 escape sequence emitted by Bubble
+// Tea's tea.SetClipboard. Works under SSH because the terminal — not the
+// host — owns the clipboard write.
+func (m Model) copyOutputToClipboard() (tea.Model, tea.Cmd) {
+	if len(m.output) == 0 {
+		notice := m.setNotice("nothing to copy", views.NoticeInfo)
+		return m, notice
 	}
+	const maxBytes = 100 * 1024
+	var b strings.Builder
+	for i, line := range m.output {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(ansi.Strip(line))
+	}
+	payload := b.String()
+	truncated := false
+	if len(payload) > maxBytes {
+		payload = payload[len(payload)-maxBytes:]
+		truncated = true
+	}
+	var label string
+	if truncated {
+		label = fmt.Sprintf("copied last %d lines (truncated to %dKB)", len(m.output), maxBytes/1024)
+	} else {
+		label = fmt.Sprintf("copied %d lines", len(m.output))
+	}
+	notice := m.setNotice(label, views.NoticeInfo)
+	return m, tea.Batch(tea.SetClipboard(payload), notice)
+}
+
+// clampOutputOffset keeps a scroll offset within the valid range for the
+// given output length and visible height.
+func clampOutputOffset(off, total, visH int) int {
+	maxOff := total - visH
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	if off < 0 {
+		return 0
+	}
+	if off > maxOff {
+		return maxOff
+	}
+	return off
+}
+
+func (m Model) outputExpandVisH() int {
+	popupH := m.outputExpandPopupH()
 	visH := popupH - 6
 	if visH < 1 {
 		visH = 1
 	}
 	return visH
+}
+
+// outputExpandPopupH returns the outer height (border included) of the
+// expand popup based on the current mode. Fullscreen reserves a single
+// row for the persistent status bar; popup leaves a 4-row margin so the
+// background TUI is still partially visible.
+func (m Model) outputExpandPopupH() int {
+	if m.outputExpandMode == outputExpandFullscreen {
+		h := m.height - statusH
+		if h < 10 {
+			h = 10
+		}
+		return h
+	}
+	popupH := m.height - 4
+	if popupH < 10 {
+		popupH = 10
+	}
+	return popupH
+}
+
+// outputExpandPopupW returns the outer width (border included) of the
+// expand popup based on the current mode.
+func (m Model) outputExpandPopupW() int {
+	if m.outputExpandMode == outputExpandFullscreen {
+		return m.width
+	}
+	w := m.width - 8
+	if w < 40 {
+		w = 40
+	}
+	return w
 }
 
 func (m Model) toggleMakefileExpand() (tea.Model, tea.Cmd) {

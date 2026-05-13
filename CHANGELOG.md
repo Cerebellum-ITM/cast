@@ -8,6 +8,48 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.24.1] – 2026-05-13
+
+### Added
+
+- Added handling of the `QuitAlt` key in the output popup, allowing the global `ctrl+x` quit shortcut to close the expanded view.
+- Implemented a fullscreen expand mode for the output popup, triggered by pressing `ctrl+e` twice.
+- Added a `y` key binding that copies the output buffer to the system clipboard via OSC52.
+
+### Changed
+
+- Replaced the `showOutputExpand` boolean with the `outputExpandMode` enum to represent the popup’s state more explicitly.
+
+## [0.24.0] – 2026-05-12
+
+### Added
+
+- **Output popup: fullscreen mode.** A second press of `ctrl+e` while
+  the expand popup is open promotes it to fullscreen, covering the
+  header and body but keeping the bottom status bar visible. A third
+  press closes it. `esc` always closes from any mode.
+
+  ```
+  ctrl+e   →  popup centered overlay
+  ctrl+e   →  fullscreen (status bar still pinned)
+  ctrl+e   →  hidden
+  ```
+
+- **Output popup: OSC52 copy with `y`.** Pressing `y` inside the
+  expand popup copies the full output buffer (ANSI-stripped) to the
+  system clipboard via the OSC52 escape sequence emitted by
+  `tea.SetClipboard`. Works over SSH because the terminal — not the
+  remote host — owns the clipboard write. Buffers larger than 100 KB
+  are truncated to the most recent slice; a status-bar notice
+  reports how many lines were copied.
+
+### Fixed
+
+- **Output popup: `ctrl+x` now quits cast from inside the popup.**
+  Previously the global quit binding (`keys.QuitAlt`) was swallowed
+  by the popup handler, forcing users running long log-following
+  commands to `esc` out before being able to quit.
+
 ## [0.23.0] – 2026-05-03
 
 ### Changed

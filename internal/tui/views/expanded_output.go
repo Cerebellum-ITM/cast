@@ -11,8 +11,11 @@ import (
 // ExpandedOutput renders a scrollable popup box showing the full command output.
 // popupW and popupH are the desired outer dimensions (including border).
 // offset is the index of the first visible line.
-// The caller should composite the result over the background via OverlayCenter.
-func ExpandedOutput(p Palette, lines []string, offset, popupW, popupH int, cmd string) string {
+// When fullscreen is true the hint row advertises closing rather than
+// expanding on the next ctrl+e.
+// The caller should composite the result over the background via OverlayCenter
+// for popup mode, or compose it directly with the status bar for fullscreen.
+func ExpandedOutput(p Palette, lines []string, offset, popupW, popupH int, cmd string, fullscreen bool) string {
 	// innerW: width of each content row (border:2 + padding:2 = 4 overhead)
 	innerW := popupW - 4
 	if innerW < 20 {
@@ -65,7 +68,11 @@ func ExpandedOutput(p Palette, lines []string, offset, popupW, popupH int, cmd s
 	}
 
 	// ── Hint row ─────────────────────────────────────────────────────────────
-	hintText := "↑↓ / j k    pgup pgdn    g G top/end    ctrl+e  esc  close"
+	expandHint := "ctrl+e fullscreen"
+	if fullscreen {
+		expandHint = "ctrl+e close"
+	}
+	hintText := "↑↓ / j k    pgup pgdn    g G top/end    y copy    " + expandHint + "    esc close"
 	hintText = ansi.Truncate(hintText, innerW, "")
 	hintRow := lipgloss.NewStyle().Width(innerW).
 		Render(Style(p.FgMuted, false).Render(hintText))
