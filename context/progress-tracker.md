@@ -55,6 +55,12 @@ prune anything stale):
   Hidden → Popup → Fullscreen via `ctrl+e` (status bar pinned in
   fullscreen), and copies the buffer via OSC52 with `y`. Spec at
   `context/specs/01-stream-popup-fullscreen-copy.md`.
+- **Fix — auto-shortcut blacklist** (2026-05-28). `autoShortcut` in
+  `internal/source/makefile.go` now skips letters reserved by the TUI
+  KeyMap (`q`, `g`, `G`, `s`, `r`, `y`) exposed via
+  `source.ReservedShortcuts`. Prevents Makefile targets like `query:`
+  from hijacking global hotkeys. User-assigned shortcuts (`[sc=X]`,
+  `.cast.toml`) bypass the filter.
 
 ## Open Questions
 

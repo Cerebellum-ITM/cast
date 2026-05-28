@@ -20,6 +20,10 @@ versions on top.
 
 - Replaced the `showOutputExpand` boolean with the `outputExpandMode` enum to represent the popup’s state more explicitly.
 
+### Fixed
+
+- Auto-shortcut assignment now skips letters reserved by global TUI hotkeys (`q`, `g`, `G`, `s`, `r`, `y`), so Makefile targets whose name starts with one of them (e.g. `query:`) no longer hijack quit/top/bottom/etc. User-assigned shortcuts via `[sc=X]` or `.cast.toml` are unaffected.
+
 ## [0.24.0] – 2026-05-12
 
 ### Added

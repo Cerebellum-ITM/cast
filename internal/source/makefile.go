@@ -542,7 +542,26 @@ func isStreamRecipe(body []string) bool {
 	return false
 }
 
-// autoShortcut assigns the first unused letter of name as a shortcut.
+// ReservedShortcuts lists single-character keys the TUI binds globally
+// (see internal/tui/keys.go DefaultKeyMap). The auto-shortcut picker skips
+// these so a Makefile target whose name starts with e.g. "q" doesn't shadow
+// the global quit. Per-command shortcuts win over global bindings in the
+// model, so without this guard a target like `query:` would hijack `q`.
+// User-assigned shortcuts (via `[sc=X]` or `.cast.toml`) are not filtered —
+// the user opts in deliberately when overriding.
+var ReservedShortcuts = map[string]bool{
+	"q": true, // Quit
+	"g": true, // Top
+	"G": true, // Bottom
+	"s": true, // ToggleSecrets
+	"r": true, // EnvRestore
+	"y": true, // CopyOutput
+}
+
+// autoShortcut assigns the first unused letter of name as a shortcut,
+// skipping letters reserved by global TUI hotkeys. Returns "" when no
+// suitable letter is available — the command renders with the NoShortcutIcon
+// and the user can still bind one manually.
 func autoShortcut(name string, existing []Command) string {
 	used := make(map[string]bool, len(existing))
 	for _, c := range existing {
@@ -550,9 +569,10 @@ func autoShortcut(name string, existing []Command) string {
 	}
 	for _, ch := range name {
 		s := string(ch)
-		if !used[s] {
-			return s
+		if used[s] || ReservedShortcuts[s] {
+			continue
 		}
+		return s
 	}
 	return ""
 }
