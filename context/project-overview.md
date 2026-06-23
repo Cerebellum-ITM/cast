@@ -56,6 +56,16 @@ UI framework: `charm.land/bubbletea/v2` + `charm.land/lipgloss/v2`
 - Walk-up to find a `Makefile` in parent directories; execute with
   `make -C <dir> <target>` so recipes evaluate from the right root.
 
+### AI annotation
+
+- `cast ai annotate` (CLI) and `ctrl+i` (TUI `commands` tab) propose the
+  missing `## name: desc [tags=…]` doc-lines for a Makefile via an LLM
+  (Groq by default, configured in the `[ai]` config section). Scope is
+  limited to description + categorical tags — behavioural flags
+  (`[stream]`, `[confirm]`, …) are never inferred. Both surfaces show a diff
+  and require explicit confirmation before writing; the API key is read from
+  an env var and never stored in config.
+
 ### Pick flow
 
 - Centered folder picker triggered by `[pick=…]`, with substring/glob

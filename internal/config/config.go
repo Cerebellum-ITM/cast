@@ -91,6 +91,17 @@ type Config struct {
 	// emoji that render in any terminal. Anything unrecognized falls back to
 	// nerdfont.
 	IconStyle string
+
+	// AI configures the `cast ai annotate` LLM backend (the [ai] section).
+	// The API key is never stored in config; it is read at call time from the
+	// environment variable named by AIAPIKeyEnv.
+	AIProvider    string   // only "groq" wired today
+	AIModel       string   // e.g. "llama-3.3-70b-versatile"
+	AIAPIKeyEnv   string   // env var holding the API key (default GROQ_API_KEY)
+	AIEndpoint    string   // OpenAI-compatible chat/completions endpoint
+	AIMaxTargets  int      // batch size per LLM call
+	AITimeoutSecs int      // per-call HTTP timeout
+	AIAllowedTags []string // categorical tags the model may choose from
 }
 
 // Default returns a Config with sensible hardcoded defaults.
@@ -110,6 +121,17 @@ func Default() *Config {
 		SidebarWidthPct: 25,
 		ShowCenterPanel: true,
 		IconStyle:       "nerdfont",
+
+		AIProvider:    "groq",
+		AIModel:       "llama-3.3-70b-versatile",
+		AIAPIKeyEnv:   "GROQ_API_KEY",
+		AIEndpoint:    "https://api.groq.com/openai/v1/chat/completions",
+		AIMaxTargets:  40,
+		AITimeoutSecs: 30,
+		AIAllowedTags: []string{
+			"build", "test", "deploy", "lint", "db",
+			"docker", "dev", "clean", "release", "docs", "ci",
+		},
 	}
 }
 
@@ -154,6 +176,27 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 	}
 	if v := global.UI.Icons; v != "" {
 		cfg.IconStyle = v
+	}
+	if v := global.AI.Provider; v != "" {
+		cfg.AIProvider = v
+	}
+	if v := global.AI.Model; v != "" {
+		cfg.AIModel = v
+	}
+	if v := global.AI.APIKeyEnv; v != "" {
+		cfg.AIAPIKeyEnv = v
+	}
+	if v := global.AI.Endpoint; v != "" {
+		cfg.AIEndpoint = v
+	}
+	if v := global.AI.MaxTargets; v > 0 {
+		cfg.AIMaxTargets = v
+	}
+	if v := global.AI.TimeoutSecs; v > 0 {
+		cfg.AITimeoutSecs = v
+	}
+	if len(global.AI.Tags.Allowed) > 0 {
+		cfg.AIAllowedTags = global.AI.Tags.Allowed
 	}
 
 	// ── Layer 3: local file ───────────────────────────────────────────────

@@ -41,6 +41,15 @@
 - `internal/tui/views/` — **Pure render functions.** Every view takes
   explicit Props + Palette and returns a string. Never imports `tui`.
 - `internal/tui/splash/` — Bubble Tea sub-model for the splash animation.
+- `internal/ai/` — LLM-backed Makefile annotation. `ai.go` defines the
+  `Provider` interface and the `Request`/`Plan`/`Annotation`/`TargetView`
+  types; `groq.go` is the OpenAI-compatible Groq client (hand-written over
+  `net/http`, zero SDK); `prompt.go` builds the system prompt + payload;
+  `filter.go` selects targets (`BuildTargetViews`); `apply.go` renders the
+  diff and writes annotations atomically (`RenderDiff` / `ApplyPlan`).
+  Imports only the stdlib and `internal/source`; only `apply.go` touches
+  `lipgloss` (and only to colour the diff — the plain render is exposed for
+  callers that bring their own palette).
 - `internal/version/` — Single source of truth for `version.Current`.
 
 ## Storage Model
@@ -67,7 +76,11 @@
 
 ## AI / Background Task Model
 
-- No AI components.
+- **`cast ai annotate`** is the only AI component. It calls an OpenAI-compatible
+  LLM endpoint (Groq by default) over `net/http` to propose Makefile doc-lines.
+  In the TUI the call runs off the Update loop as a `tea.Cmd` that emits an
+  `aiPlanMsg`; the popup blocks input (spinner) until it returns. `Annotate()`
+  has zero side-effects — only `ApplyPlan()` writes to disk, atomically.
 - No long-running background tasks beyond subprocess execution. Streaming
   output is implemented as a goroutine that emits Bubble Tea messages via
   `program.Send`; the Update loop remains the single ordering authority.
@@ -79,8 +92,12 @@
    debugged via a throwaway `cmd/debugview` (see
    `docs/ai/debugging-views.md`).
 2. **No circular imports.** The import graph is strictly:
-   `cmd/cast → tui → {views, runner, source, config, splash, library, db}`;
-   `views → {runner, source, lipgloss}`; `source → stdlib only`.
+   `cmd/cast → {tui, ai, config, source, db}`;
+   `tui → {views, runner, source, config, splash, library, db, ai}`;
+   `views → {runner, source, ai, lipgloss}`;
+   `ai → {source, stdlib, net/http}` (+ `lipgloss` in `apply.go` only);
+   `source → stdlib only`. `ai` never imports `views`/`tui`, so the
+   `views → ai` edge (the popup reads `ai.Plan`/`RenderDiff`) is cycle-free.
 3. **All icons are Nerd Font glyphs by default**, with an emoji
    fallback. New icons are added to `IconSet` in
    `internal/tui/views/icons.go` and accessed via `Icons(style).<Field>`.

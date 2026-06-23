@@ -34,6 +34,8 @@ Usage:
   cast tags list            show category tags for all commands
   cast tags set CMD a,b     write [tags=a,b] on CMD's Makefile doc line
   cast tags unset CMD       remove [tags=...] from CMD's doc line
+  cast ai annotate          autocomplete missing Makefile doc-lines via an LLM
+  cast ai annotate --help   show ai annotate flags (--target/--all/--dry-run/…)
 
 Flags:
   -env   string   environment override: local | staging | prod
@@ -59,6 +61,9 @@ func main() {
 			return
 		case "tags":
 			runTagsCommand(os.Args[2:])
+			return
+		case "ai":
+			runAICommand(os.Args[2:])
 			return
 		case "-h", "--help", "help":
 			fmt.Print(usage)

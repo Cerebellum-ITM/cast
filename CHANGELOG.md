@@ -8,6 +8,50 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.25.0] – 2026-06-19
+
+### Added
+
+- `cast ai annotate`: autocomplete missing Makefile doc-lines and category
+  tags with an LLM (Groq `llama-3.3-70b-versatile` by default). Dual surface
+  — CLI and TUI. The new `[ai]` config section configures the backend; the
+  API key is read from the env var named by `api_key_env` (default
+  `GROQ_API_KEY`) and is never stored in TOML.
+
+  ```shell
+  export GROQ_API_KEY=gsk_...
+  cast ai annotate --dry-run        # preview the proposed diff, write nothing
+  cast ai annotate                  # asks "Apply N annotation(s)? [y/N]"
+  cast ai annotate --target build   # only the build target
+  cast ai annotate --all            # re-annotate, overwriting existing doc-lines
+  cast ai annotate --json           # machine-readable Plan for scripts
+  ```
+
+  ```toml
+  [ai]
+  provider     = "groq"
+  model        = "llama-3.3-70b-versatile"
+  api_key_env  = "GROQ_API_KEY"
+  endpoint     = "https://api.groq.com/openai/v1/chat/completions"
+  max_targets  = 40
+  timeout_secs = 30
+
+  [ai.tags]
+  allowed = ["build", "test", "deploy", "lint", "db", "docker", "dev", "clean", "release", "docs", "ci"]
+  ```
+
+- Commands tab: new `ctrl+i` keybinding opens the AI annotate popup. Pick
+  `t` (this target), `a` (targets without a doc-line), or `A` (all,
+  overwriting); a spinner shows while the model is queried, then the proposed
+  diff is shown — `⏎` applies and reparses the Makefile so the sidebar updates
+  without a restart, `esc` cancels.
+
+### Changed
+
+- New internal `internal/ai/` package (LLM provider, prompt, Makefile target
+  filter, diff renderer, atomic apply). It imports only the stdlib and
+  `internal/source`; the diff renderer is the only part that touches lipgloss.
+
 ## [0.24.1] – 2026-05-13
 
 ### Added
