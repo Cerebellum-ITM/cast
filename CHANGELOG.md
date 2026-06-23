@@ -8,6 +8,17 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.26.1] – 2026-06-23
+
+### Changed
+
+- The default (non-deployed) environment now presents as `dev` everywhere a
+  user sees it — `cast config`, the confirmation modal, run history, and the
+  Theme-tab preview — matching the `DEV` env pill and the `cast init` template.
+  Previously these surfaces showed `local` while the pill showed `DEV`. `local`
+  is still accepted as an alias (`cast -env local`, `[env] name = "local"`), and
+  an unset env continues to resolve to this default.
+
 ## [0.26.0] – 2026-06-23
 
 ### Added

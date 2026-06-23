@@ -226,7 +226,7 @@ cast tags unset CMD            remove [tags=...] from CMD's doc line
 ```
 
 **Flags**:
-- `-env local|staging|prod` · `-theme catppuccin|dracula|nord`
+- `-env dev|staging|prod` · `-theme catppuccin|dracula|nord`
 - `-f`, `--file <path>` — run against an alternate Makefile (works in any
   position, honoured by every subcommand: `cast -f X ai annotate` and
   `cast ai annotate -f X` are equivalent).
@@ -338,9 +338,11 @@ Both respect the current maximum derived from the sibling panel's size and the
 
 | Env | Accent |
 |---|---|
-| `local` | theme default |
+| `dev` (default) | theme default |
 | `staging` | orange |
 | `prod` | red |
+
+An unset environment resolves to `dev`. `local` is accepted as an alias.
 
 ---
 

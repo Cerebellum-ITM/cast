@@ -22,7 +22,11 @@ func (e Env) String() string {
 	case EnvProd:
 		return "prod"
 	default:
-		return "local"
+		// The default/non-deployed environment is named "dev" everywhere a
+		// user sees it (env pill, `cast config`, confirmation modal, history,
+		// the `cast init` template). "local" is still accepted as an alias by
+		// ParseEnv for backward compatibility.
+		return "dev"
 	}
 }
 
@@ -366,7 +370,9 @@ func validateLayout(cfg *Config) error {
 	return nil
 }
 
-// ParseEnv converts a string to an Env, defaulting to EnvLocal.
+// ParseEnv converts a string to an Env. Anything that isn't a staging/prod
+// spelling — including "dev", "local", and "" (no env configured) — resolves
+// to the default EnvLocal, which presents as "dev".
 func ParseEnv(s string) Env {
 	switch s {
 	case "staging":

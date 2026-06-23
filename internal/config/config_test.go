@@ -114,3 +114,19 @@ func TestResolveSourcePathAbsolutePassthrough(t *testing.T) {
 		t.Errorf("abs path changed: got %q want %q", got, abs)
 	}
 }
+
+// TestEnvDefaultsToDev guards that the default (unset) environment presents as
+// "dev" everywhere, and that "dev"/"local"/"" are all aliases for it.
+func TestEnvDefaultsToDev(t *testing.T) {
+	if got := Default().Env.String(); got != "dev" {
+		t.Errorf("Default().Env.String() = %q, want dev", got)
+	}
+	for _, s := range []string{"", "dev", "local"} {
+		if got := ParseEnv(s).String(); got != "dev" {
+			t.Errorf("ParseEnv(%q).String() = %q, want dev", s, got)
+		}
+	}
+	if ParseEnv("staging") != EnvStaging || ParseEnv("prod") != EnvProd {
+		t.Error("staging/prod parsing regressed")
+	}
+}

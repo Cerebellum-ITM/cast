@@ -101,7 +101,7 @@ func TagColor(p Palette, tag string) color.Color {
 		return p.Red
 	case "staging":
 		return p.Orange
-	case "local":
+	case "dev", "local":
 		return p.Green
 	default:
 		return p.Accent

@@ -35,7 +35,7 @@ type EnvDetailProps struct {
 	NewKeyMode     bool   // true during key-name entry step of new-var flow
 	NewKeyBuffer   string // key name typed so far
 	NewSensitive   bool   // sensitive toggle state during new-var flow
-	EnvName        string // e.g. "local", "staging", "prod"
+	EnvName        string // e.g. "dev", "staging", "prod"
 	VarCount       int
 	SensitiveCount int
 	Filename       string

@@ -70,9 +70,10 @@
 ## Auth and Access Model
 
 - cast is a local CLI; there is no authentication or remote access.
-- The "auth-equivalent" concept is the **environment pill** (`local` /
-  `staging` / `prod`). `prod` forces the confirmation modal on for
-  every command that does not declare `[no-confirm]`.
+- The "auth-equivalent" concept is the **environment pill** (`dev` /
+  `staging` / `prod`; an unset env defaults to `dev`, with `local` accepted
+  as an alias). `prod` forces the confirmation modal on for every command
+  that does not declare `[no-confirm]`.
 
 ## AI / Background Task Model
 

@@ -38,7 +38,7 @@ Usage:
   cast ai annotate --help   show ai annotate flags (--target/--all/--dry-run/…)
 
 Flags:
-  -env        string   environment override: local | staging | prod
+  -env        string   environment override: dev | staging | prod
   -theme      string   theme override: catppuccin | dracula | nord
   -f, --file  string   use an alternate Makefile (default ./Makefile).
                        Same effect, layered: [source] path in .cast.toml
@@ -119,7 +119,7 @@ func main() {
 	}
 
 	var (
-		flagEnv   = flag.String("env", "", "environment override: local | staging | prod")
+		flagEnv   = flag.String("env", "", "environment override: dev | staging | prod")
 		flagTheme = flag.String("theme", "", "theme override: catppuccin | dracula | nord")
 	)
 	flag.Usage = func() { fmt.Print(usage) }
