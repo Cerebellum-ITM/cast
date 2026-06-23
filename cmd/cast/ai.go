@@ -14,7 +14,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/Cerebellum-ITM/cast/internal/ai"
-	"github.com/Cerebellum-ITM/cast/internal/config"
 )
 
 // Exit codes for `cast ai annotate` (documented in usage and the spec):
@@ -79,7 +78,7 @@ func runAIAnnotate(args []string) {
 	fs.Usage = func() { fmt.Print(aiUsage) }
 	_ = fs.Parse(args)
 
-	cfg, err := config.Load("", "")
+	cfg, err := loadConfig("", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cast ai: config: %v\n", err)
 		os.Exit(exitConfig)

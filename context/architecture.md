@@ -109,7 +109,14 @@
 5. **Config layering order is fixed**: defaults → global TOML → local
    TOML → `CAST_ENV` → CLI flags. Later sources override earlier ones.
    Do not add new sources without updating all five layers and the
-   docs.
-6. **Failure in a chain step drops the remaining steps.** The chain
+   docs. The source-file path has its own override chain in the same
+   spirit: default `./Makefile` → local `[source].path` →
+   `CAST_MAKEFILE` env → `-f`/`--file` flag. Selection is always
+   explicit — cast never auto-detects an alternate file by convention.
+6. **The runner always pins the makefile with `make -f <file>`.** cast
+   executes exactly the file it parsed (`cfg.SourceFile`), never relying
+   on make's own `GNUmakefile`/`makefile`/`Makefile` precedence. Do not
+   drop `-f` from `runner.makeArgs`.
+7. **Failure in a chain step drops the remaining steps.** The chain
    persists as failed; do not introduce "continue on error" semantics
    without an explicit user-facing opt-in.

@@ -156,6 +156,7 @@ type Model struct {
 	makefileLines  []string
 	makefilePath   string
 	makefileDir    string // dirname(makefilePath); passed as `make -C <dir>`
+	makefileFile   string // basename(makefilePath); passed as `make -f <file>`
 	makefileOffset int
 
 	// .env tab state
@@ -445,6 +446,7 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		makefileLines:   loadFileLines(cfg.SourcePath),
 		makefilePath:    cfg.SourcePath,
 		makefileDir:     cfg.SourceDir,
+		makefileFile:    cfg.SourceFile,
 		envFile:         envFile,
 		envFilePath:     cfg.EnvFilePath,
 		outputWidthPct:  cfg.OutputWidthPct,
@@ -2801,7 +2803,7 @@ func (m Model) dispatchCommand(cmdMeta source.Command, extraVars []string) (tea.
 	}
 	name := cmdMeta.Name
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := runner.StreamRun(ctx, m.makefileDir, name, extraVars)
+	ch := runner.StreamRun(ctx, m.makefileDir, m.makefileFile, name, extraVars)
 	m.streamCh = ch
 	m.runCancel = cancel
 	stream := cmdMeta.Stream
@@ -2958,7 +2960,7 @@ func (m Model) dispatchInteractive(name string, extraVars []string) (tea.Model, 
 	m.streamCh = nil
 	m.runCancel = nil
 	startCmd := func() tea.Msg { return RunStartMsg{Command: name, Interactive: true} }
-	return m, tea.Sequence(startCmd, runner.InteractiveRun(m.makefileDir, name, extraVars))
+	return m, tea.Sequence(startCmd, runner.InteractiveRun(m.makefileDir, m.makefileFile, name, extraVars))
 }
 
 func waitNext(ch <-chan tea.Msg) tea.Cmd {

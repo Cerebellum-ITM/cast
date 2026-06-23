@@ -118,9 +118,17 @@ type LocalFile struct {
 	Env      LocalEnv      `toml:"env"`
 	Commands LocalCommands `toml:"commands"`
 	Layout   LayoutSection `toml:"layout"`
+	Source   LocalSource   `toml:"source"`
 
-	// WIP: Source  LocalSource  `toml:"source"`
 	// WIP: Project LocalProject `toml:"project"`
+}
+
+// LocalSource overrides which task-source file cast reads for this project.
+// Path is relative to the project root (resolved with the same walk-up as the
+// default Makefile). Type is reserved; only "makefile" is honoured today.
+type LocalSource struct {
+	Path string `toml:"path"`
+	Type string `toml:"type"`
 }
 
 // LocalCommands holds project-level command configuration.
@@ -142,12 +150,6 @@ type LocalEnv struct {
 }
 
 // ── WIP local structs (uncommented when ready) ───────────────────────────────
-
-// LocalSource overrides which task-source file cast reads.
-// type LocalSource struct {
-// 	Type string `toml:"type"` // makefile | taskfile | yaml
-// 	Path string `toml:"path"`
-// }
 
 // LocalCommands holds project-level keyboard shortcut overrides.
 // type LocalCommands struct {
@@ -432,8 +434,10 @@ file = ".env"             # path to .env file (relative to this config)
 # type = "dotenv"   # dotenv | direnv | chamber | ssm
 
 # [source]
-# type = "makefile"   # makefile | taskfile | yaml
-# path = "./Makefile"
+# # Run cast against an alternate Makefile for this project. Layered:
+# # this path  <  CAST_MAKEFILE env  <  cast -f/--file flag.
+# path = "Makefile.personal"
+# # type = "makefile"   # reserved; only "makefile" is honoured today
 
 # [commands.shortcuts]
 # "b" = "build"

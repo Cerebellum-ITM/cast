@@ -24,14 +24,15 @@ type DoneMsg struct {
 // Run executes "make <target>" and returns a DoneMsg when finished.
 // When dir != "", make is invoked with `-C <dir>` so recipes evaluate from
 // the directory that holds the Makefile (useful for monorepos / submodules
-// where cast was launched from a subdirectory). extraVars are passed both as
-// `KEY=VAL` arguments to make (so they appear as `$(KEY)` inside recipes) and
-// as environment variables (so plain shell `$KEY` references also work). For
-// streaming output use StreamRun.
-func Run(ctx context.Context, dir, target string, extraVars []string) tea.Cmd {
+// where cast was launched from a subdirectory). When file != "", `-f <file>`
+// pins the exact makefile cast parsed (file is a basename relative to dir).
+// extraVars are passed both as `KEY=VAL` arguments to make (so they appear as
+// `$(KEY)` inside recipes) and as environment variables (so plain shell `$KEY`
+// references also work). For streaming output use StreamRun.
+func Run(ctx context.Context, dir, file, target string, extraVars []string) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
-		cmd := exec.CommandContext(ctx, "make", makeArgs(dir, target, extraVars)...)
+		cmd := exec.CommandContext(ctx, "make", makeArgs(dir, file, target, extraVars)...)
 		applyExtraEnv(cmd, extraVars)
 		configureProcess(cmd)
 		err := cmd.Run()
@@ -43,13 +44,19 @@ func Run(ctx context.Context, dir, target string, extraVars []string) tea.Cmd {
 	}
 }
 
-// makeArgs prepends `-C <dir>` when dir is set so recipes run relative to
-// the Makefile's directory. extraVars (each `KEY=VAL`) are inserted before
-// the target so make exposes them as variables.
-func makeArgs(dir, target string, extraVars []string) []string {
-	args := make([]string, 0, len(extraVars)+3)
+// makeArgs builds the `make` argument list: `-C <dir>` (when set) so recipes
+// run relative to the Makefile's directory, then `-f <file>` (when set) so
+// make reads exactly the file cast parsed — `file` is a basename resolved
+// against `dir`, which also sidesteps make's GNUmakefile/makefile/Makefile
+// precedence. extraVars (each `KEY=VAL`) are inserted before the target so
+// make exposes them as variables.
+func makeArgs(dir, file, target string, extraVars []string) []string {
+	args := make([]string, 0, len(extraVars)+5)
 	if dir != "" {
 		args = append(args, "-C", dir)
+	}
+	if file != "" {
+		args = append(args, "-f", file)
 	}
 	args = append(args, extraVars...)
 	args = append(args, target)
@@ -70,9 +77,9 @@ func applyExtraEnv(cmd *exec.Cmd, vars []string) {
 // paused while the command runs — the alt-screen is released so editors and
 // REPLs (python3, psql, bash, vim…) can take over the terminal — and resumed
 // once the process exits. A DoneMsg is emitted through the Program on finish.
-func InteractiveRun(dir, target string, extraVars []string) tea.Cmd {
+func InteractiveRun(dir, file, target string, extraVars []string) tea.Cmd {
 	start := time.Now()
-	cmd := exec.Command("make", makeArgs(dir, target, extraVars)...)
+	cmd := exec.Command("make", makeArgs(dir, file, target, extraVars)...)
 	applyExtraEnv(cmd, extraVars)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -92,11 +99,11 @@ func InteractiveRun(dir, target string, extraVars []string) tea.Cmd {
 // ctx cancellation sends SIGINT to the subprocess' process group so child
 // processes (e.g. `docker logs -f` spawned by make) also terminate. If the
 // process does not exit within 2s, SIGKILL is sent.
-func StreamRun(ctx context.Context, dir, target string, extraVars []string) <-chan tea.Msg {
+func StreamRun(ctx context.Context, dir, file, target string, extraVars []string) <-chan tea.Msg {
 	ch := make(chan tea.Msg, 128)
 	go func() {
 		start := time.Now()
-		cmd := exec.Command("make", makeArgs(dir, target, extraVars)...)
+		cmd := exec.Command("make", makeArgs(dir, file, target, extraVars)...)
 		applyExtraEnv(cmd, extraVars)
 		configureProcess(cmd)
 

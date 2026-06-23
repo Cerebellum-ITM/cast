@@ -8,6 +8,36 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.26.0] – 2026-06-23
+
+### Added
+
+- Run cast against an alternate Makefile (e.g. `Makefile.personal`) instead of
+  the default `Makefile`. Selectable three ways, layered
+  `[source] path` (local) < `CAST_MAKEFILE` (env) < `-f`/`--file` (flag), and
+  honoured by **every** subcommand — the flag works in any position
+  (`cast -f X ai annotate` and `cast ai annotate -f X` are equivalent).
+  Selection is always explicit; cast never auto-prefers an alternate file.
+
+  ```shell
+  cast -f Makefile.personal                 # launch the TUI on it
+  cast --file Makefile.personal ai annotate # subcommands honour it too
+  CAST_MAKEFILE=Makefile.personal cast      # via environment
+  ```
+
+  ```toml
+  # .cast.toml
+  [source]
+  path = "Makefile.personal"
+  ```
+
+### Changed
+
+- The runner now invokes `make -C <dir> -f <file> <target>` (it previously
+  omitted `-f`). cast executes exactly the file it parsed, which also removes
+  the silent `GNUmakefile` > `makefile` > `Makefile` precedence mismatch when
+  several makefiles share a directory.
+
 ## [0.25.0] – 2026-06-19
 
 ### Added

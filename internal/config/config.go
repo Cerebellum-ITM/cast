@@ -56,6 +56,7 @@ type Config struct {
 	SourceType  string // "makefile" | "taskfile" | "yaml"
 	SourcePath  string // absolute path, resolved via walk-up when needed
 	SourceDir   string // dirname(SourcePath); where recipes must execute
+	SourceFile  string // basename(SourcePath); passed to `make -f`
 	// SourceLookupDepth: parent directories to walk when resolving SourcePath.
 	// 0 disables walk-up. Default 5.
 	SourceLookupDepth int
@@ -135,13 +136,27 @@ func Default() *Config {
 	}
 }
 
+// LoadOptions carries the CLI-flag overrides into Load. Empty fields mean
+// "not set on the command line" and fall through to the lower layers.
+type LoadOptions struct {
+	Env        string // -env override
+	Theme      string // -theme override
+	SourceFile string // -f/--file: alternate Makefile path
+}
+
 // Load builds the resolved Config by layering:
 //  1. Hardcoded defaults
 //  2. Global config (~/.config/cast/cast.toml) — created if missing
 //  3. Local config (.cast.toml in cwd) — optional
 //  4. CAST_ENV environment variable
-//  5. flagEnv / flagTheme CLI overrides (empty = not set)
-func Load(flagEnv, flagTheme string) (*Config, error) {
+//  5. CLI flag overrides (empty = not set)
+//
+// The source-file path has its own override chain layered the same way:
+// default `./Makefile` → local `[source].path` → `CAST_MAKEFILE` env →
+// `opts.SourceFile` flag.
+func Load(opts LoadOptions) (*Config, error) {
+	flagEnv := opts.Env
+	flagTheme := opts.Theme
 	cfg := Default()
 
 	// ── Layer 2: global file ──────────────────────────────────────────────
@@ -254,8 +269,21 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 		return nil, err
 	}
 
+	// Source-file override chain: local [source].path < CAST_MAKEFILE < -f flag.
+	// Selection is always explicit — cast never auto-prefers an alternate file.
+	if ok && local.Source.Path != "" {
+		cfg.SourcePath = local.Source.Path
+	}
+	if e := os.Getenv("CAST_MAKEFILE"); e != "" {
+		cfg.SourcePath = e
+	}
+	if opts.SourceFile != "" {
+		cfg.SourcePath = opts.SourceFile
+	}
+
 	cfg.SourcePath = resolveSourcePath(cfg.SourcePath, cfg.SourceLookupDepth)
 	cfg.SourceDir = filepath.Dir(cfg.SourcePath)
+	cfg.SourceFile = filepath.Base(cfg.SourcePath)
 
 	return cfg, nil
 }

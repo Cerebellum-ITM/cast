@@ -38,11 +38,58 @@ Usage:
   cast ai annotate --help   show ai annotate flags (--target/--all/--dry-run/…)
 
 Flags:
-  -env   string   environment override: local | staging | prod
-  -theme string   theme override: catppuccin | dracula | nord
+  -env        string   environment override: local | staging | prod
+  -theme      string   theme override: catppuccin | dracula | nord
+  -f, --file  string   use an alternate Makefile (default ./Makefile).
+                       Same effect, layered: [source] path in .cast.toml
+                       < CAST_MAKEFILE env < -f flag. Honoured by every
+                       subcommand (cast -f X ai annotate, etc.).
 `
 
+// sourceFileFlag holds the -f/--file value, parsed once at startup and read by
+// loadConfig so every subcommand honours the same alternate Makefile. Written
+// exactly once in main() before any dispatch; never mutated afterwards.
+var sourceFileFlag string
+
+// loadConfig is the single config entry point for the CLI. It injects the
+// process-wide -f/--file override into every layer-resolved Config.
+func loadConfig(env, theme string) (*config.Config, error) {
+	return config.Load(config.LoadOptions{Env: env, Theme: theme, SourceFile: sourceFileFlag})
+}
+
+// parseSourceFlag strips the first -f/--file (space or `=` form) out of args,
+// returning its value and the remaining args. This makes the flag uniform
+// across every subcommand without each one re-declaring it: both
+// `cast -f X ai annotate` and `cast ai annotate -f X` work.
+func parseSourceFlag(args []string) (file string, rest []string) {
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-f" || a == "--file":
+			if i+1 < len(args) {
+				file = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "-f="):
+			file = a[len("-f="):]
+		case strings.HasPrefix(a, "--file="):
+			file = a[len("--file="):]
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return file, rest
+}
+
 func main() {
+	// Pull the global -f/--file override out of the args before anything else,
+	// so it works in any position and every subcommand picks it up via
+	// loadConfig. The cleaned args drive the rest of dispatch + flag parsing.
+	var cleaned []string
+	sourceFileFlag, cleaned = parseSourceFlag(os.Args[1:])
+	os.Args = append(os.Args[:1], cleaned...)
+
 	// Subcommands are checked before flag.Parse so they can have their own
 	// argument handling without conflicting with the TUI flags.
 	if len(os.Args) > 1 {
@@ -78,7 +125,7 @@ func main() {
 	flag.Usage = func() { fmt.Print(usage) }
 	flag.Parse()
 
-	cfg, err := config.Load(*flagEnv, *flagTheme)
+	cfg, err := loadConfig(*flagEnv, *flagTheme)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cast: config: %v\n", err)
 		os.Exit(1)
@@ -185,7 +232,7 @@ func runConfig() {
 	}
 
 	// Load first so EnsureGlobal() runs before we check file status.
-	cfg, err := config.Load("", "")
+	cfg, err := loadConfig("", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cast config: %v\n", err)
 		os.Exit(1)
@@ -210,7 +257,7 @@ func runConfig() {
 func runEnvCommand(args []string) {
 	if len(args) == 0 {
 		// Open TUI on the .env tab.
-		cfg, err := config.Load("", "")
+		cfg, err := loadConfig("", "")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cast env: config: %v\n", err)
 			os.Exit(1)
@@ -265,7 +312,7 @@ func runEnvSet(args []string) {
 	key := pair[:idx]
 	value := pair[idx+1:]
 
-	cfg, err := config.Load("", "")
+	cfg, err := loadConfig("", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cast env set: config: %v\n", err)
 		os.Exit(1)
@@ -338,7 +385,7 @@ func runEnvGet(args []string) {
 	}
 	key := fs.Arg(0)
 
-	cfg, err := config.Load("", "")
+	cfg, err := loadConfig("", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cast env get: config: %v\n", err)
 		os.Exit(1)
@@ -369,7 +416,7 @@ func runEnvList(args []string) {
 	reveal := fs.Bool("reveal", false, "show sensitive values")
 	_ = fs.Parse(args)
 
-	cfg, err := config.Load("", "")
+	cfg, err := loadConfig("", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cast env list: config: %v\n", err)
 		os.Exit(1)
@@ -418,7 +465,7 @@ func runShortcutCommand(args []string) {
 }
 
 func runShortcutList() {
-	cfg, err := config.Load("", "")
+	cfg, err := loadConfig("", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cast shortcut list: config: %v\n", err)
 		os.Exit(1)
@@ -583,7 +630,7 @@ func runTagsCommand(args []string) {
 }
 
 func runTagsList() {
-	cfg, err := config.Load("", "")
+	cfg, err := loadConfig("", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cast tags list: config: %v\n", err)
 		os.Exit(1)
@@ -605,7 +652,7 @@ func runTagsList() {
 }
 
 func runTagsSet(cmdName, csv string) {
-	cfg, err := config.Load("", "")
+	cfg, err := loadConfig("", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cast tags: config: %v\n", err)
 		os.Exit(1)

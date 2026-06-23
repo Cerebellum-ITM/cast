@@ -53,6 +53,13 @@ prune anything stale):
 
 ## Recently Completed (post-adoption)
 
+- **Unit 03 — custom-source-file** (v0.26.0, 2026-06-23). cast can run
+  against an arbitrary Makefile via `-f`/`--file`, `CAST_MAKEFILE`, or
+  `[source] path` (layered local < env < flag), honoured by every
+  subcommand through `config.LoadOptions`. The runner now pins the file
+  with `make -f <basename>`, so execution matches the parsed file and the
+  `GNUmakefile`/`Makefile` precedence footgun is gone. Spec at
+  `context/specs/03-custom-source-file.md`.
 - **Unit 02 — ai-annotate-makefile** (v0.25.0, 2026-06-19). New
   `internal/ai/` package + `cast ai annotate` CLI
   (`--target/--all/--dry-run/--yes/--json`, exit codes 0/1/2/3) and a
