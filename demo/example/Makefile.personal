@@ -1,0 +1,17 @@
+## notes: Open my scratch notes [tags=dev] [sc=n]
+notes:
+	@echo "→ opening ~/notes.md"
+
+## sync: Sync my dotfiles [tags=dev] [sc=s]
+sync:
+	@echo "→ syncing dotfiles…"
+	@echo "✓ up to date"
+
+## backup: Back up the local database [tags=db] [sc=k]
+backup:
+	@echo "→ pg_dump app > backup.sql"
+	@echo "✓ backup.sql written"
+
+## scratch: Spin up a throwaway shell [tags=dev]
+scratch:
+	@echo "→ entering scratch shell"
