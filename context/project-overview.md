@@ -54,7 +54,21 @@ UI framework: `charm.land/bubbletea/v2` + `charm.land/lipgloss/v2`
   `[interactive]`/`[no-interactive]`, `[sc=X]`, `[tags=a,b,c]`, `[pick=SPEC]`,
   `[as=A,B,…]`.
 - Walk-up to find a `Makefile` in parent directories; execute with
-  `make -C <dir> <target>` so recipes evaluate from the right root.
+  `make -C <dir> -f <file> <target>` so recipes evaluate from the right
+  root against exactly the file cast parsed.
+- Run against an alternate Makefile (`Makefile.personal`, etc.) via
+  `-f`/`--file`, `CAST_MAKEFILE`, or `[source] path` in `.cast.toml`
+  (layered, explicit), honoured across every subcommand.
+
+### AI annotation
+
+- `cast ai annotate` (CLI) and `ctrl+i` (TUI `commands` tab) propose the
+  missing `## name: desc [tags=…]` doc-lines for a Makefile via an LLM
+  (Groq by default, configured in the `[ai]` config section). Scope is
+  limited to description + categorical tags — behavioural flags
+  (`[stream]`, `[confirm]`, …) are never inferred. Both surfaces show a diff
+  and require explicit confirmation before writing; the API key is read from
+  an env var and never stored in config.
 
 ### Pick flow
 

@@ -430,6 +430,57 @@ func mutateMakefileDocLine(path, cmdName string, mutate func(*DocTagState)) erro
 	return os.Rename(tmp, path)
 }
 
+// WriteDocLine inserts or replaces the `## name: desc [tags=…]` doc-line
+// directly above the target named `name` in `lines`, operating purely in
+// memory (no disk I/O). When a doc-line for `name` already sits immediately
+// above the rule, it is replaced — any pre-existing flag tags it carried
+// ([sc=X], [stream], [confirm], …) are preserved; only the description and
+// the `[tags=…]` list are overwritten. Otherwise a fresh doc-line is inserted.
+// Passing an empty `tags` slice removes the `[tags=…]` marker. Returns
+// ErrTargetNotFound when `name` is not declared in `lines`.
+func WriteDocLine(lines []string, name, desc string, tags []string) ([]string, error) {
+	if name == "" {
+		return nil, fmt.Errorf("makefile: empty target name")
+	}
+	targetIdx := findTargetIndex(lines, name)
+	if targetIdx == -1 {
+		return nil, fmt.Errorf("%w: %s", ErrTargetNotFound, name)
+	}
+
+	// Preserve any flag tags from an existing doc-line directly above the rule.
+	var state DocTagState
+	docIdx := -1
+	if targetIdx > 0 {
+		if _, st, ok := parseDocLine(lines[targetIdx-1], name); ok {
+			state = st
+			docIdx = targetIdx - 1
+		}
+	}
+	if len(tags) > 0 {
+		state.HasTags, state.Tags = true, tags
+	} else {
+		state.HasTags, state.Tags = false, nil
+	}
+
+	prefix := "## " + name + ":"
+	if desc = strings.TrimSpace(desc); desc != "" {
+		prefix += " " + desc
+	}
+	docLine := renderDocLine(prefix, state)
+
+	out := make([]string, 0, len(lines)+1)
+	if docIdx >= 0 {
+		out = append(out, lines[:docIdx]...)
+		out = append(out, docLine)
+		out = append(out, lines[docIdx+1:]...)
+	} else {
+		out = append(out, lines[:targetIdx]...)
+		out = append(out, docLine)
+		out = append(out, lines[targetIdx:]...)
+	}
+	return out, nil
+}
+
 // ReadDocTagState parses path and returns the tag state declared on the
 // `## cmdName: ...` line. Missing docstring returns a zero DocTagState and
 // ok=false. Useful for UIs that want to reflect the current source-of-truth
@@ -668,6 +719,42 @@ func findTargetIndex(lines []string, name string) int {
 		}
 	}
 	return -1
+}
+
+// MakefileTargetNames returns every declared target name in `lines`, in file
+// order, de-duplicated. It applies the same rule-line detection as
+// findTargetIndex (column 0, a `:` that is not `:=`, not a comment) and skips
+// special/synthetic names containing `.`, `$`, `(` or `)` — so `.PHONY`,
+// pattern rules and variable-built targets are excluded. Used by the AI
+// annotator to enumerate candidate targets without rebuilding the full
+// Command slice.
+func MakefileTargetNames(lines []string) []string {
+	var names []string
+	seen := make(map[string]bool)
+	for _, line := range lines {
+		if line == "" || line[0] == '\t' || line[0] == ' ' {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		colon := strings.Index(trimmed, ":")
+		if colon < 0 {
+			continue
+		}
+		if colon+1 < len(trimmed) && trimmed[colon+1] == '=' {
+			continue
+		}
+		for _, t := range strings.Fields(trimmed[:colon]) {
+			if t == "" || strings.ContainsAny(t, ".$()") || seen[t] {
+				continue
+			}
+			seen[t] = true
+			names = append(names, t)
+		}
+	}
+	return names
 }
 
 // AppendMakefileTarget writes snippetBody at the end of the Makefile at

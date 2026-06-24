@@ -20,6 +20,7 @@ type GlobalFile struct {
 	Layout  LayoutSection `toml:"layout"`
 	Source  GlobalSource  `toml:"source"`
 	UI      GlobalUI      `toml:"ui"`
+	AI      GlobalAI      `toml:"ai"`
 
 	// WIP: Keybindings   GlobalKeybindings   `toml:"keybindings"`
 	// WIP: Notifications GlobalNotifications `toml:"notifications"`
@@ -37,6 +38,25 @@ type GlobalUI struct {
 // LookupDepth=0 disables the walk-up and requires the file in cwd. Default 5.
 type GlobalSource struct {
 	LookupDepth int `toml:"lookup_depth"`
+}
+
+// GlobalAI configures the `cast ai annotate` LLM backend. Zero/empty fields
+// inherit the defaults from config.Default(); the API key is never stored
+// here — it is read from the environment variable named by APIKeyEnv.
+type GlobalAI struct {
+	Provider    string       `toml:"provider"`
+	Model       string       `toml:"model"`
+	APIKeyEnv   string       `toml:"api_key_env"`
+	Endpoint    string       `toml:"endpoint"`
+	MaxTargets  int          `toml:"max_targets"`
+	TimeoutSecs int          `toml:"timeout_secs"`
+	Tags        GlobalAITags `toml:"tags"`
+}
+
+// GlobalAITags lists the categorical tags the model may choose from. Empty
+// means "let the model decide freely".
+type GlobalAITags struct {
+	Allowed []string `toml:"allowed"`
 }
 
 // GlobalTheme controls which theme is active per environment.
@@ -98,9 +118,17 @@ type LocalFile struct {
 	Env      LocalEnv      `toml:"env"`
 	Commands LocalCommands `toml:"commands"`
 	Layout   LayoutSection `toml:"layout"`
+	Source   LocalSource   `toml:"source"`
 
-	// WIP: Source  LocalSource  `toml:"source"`
 	// WIP: Project LocalProject `toml:"project"`
+}
+
+// LocalSource overrides which task-source file cast reads for this project.
+// Path is relative to the project root (resolved with the same walk-up as the
+// default Makefile). Type is reserved; only "makefile" is honoured today.
+type LocalSource struct {
+	Path string `toml:"path"`
+	Type string `toml:"type"`
 }
 
 // LocalCommands holds project-level command configuration.
@@ -122,12 +150,6 @@ type LocalEnv struct {
 }
 
 // ── WIP local structs (uncommented when ready) ───────────────────────────────
-
-// LocalSource overrides which task-source file cast reads.
-// type LocalSource struct {
-// 	Type string `toml:"type"` // makefile | taskfile | yaml
-// 	Path string `toml:"path"`
-// }
 
 // LocalCommands holds project-level keyboard shortcut overrides.
 // type LocalCommands struct {
@@ -350,6 +372,20 @@ sidebar_width_pct  = 25
 output_width_pct   = 30
 show_center_panel  = true
 
+[ai]
+# Backend for "cast ai annotate" (autocomplete Makefile doc-lines + tags).
+# Only "groq" is wired today; the endpoint is OpenAI-compatible.
+provider     = "groq"
+model        = "llama-3.3-70b-versatile"
+api_key_env  = "GROQ_API_KEY"   # env var holding the API key — never stored here
+endpoint     = "https://api.groq.com/openai/v1/chat/completions"
+max_targets  = 40               # targets per LLM call; larger Makefiles are split
+timeout_secs = 30
+
+[ai.tags]
+# Categorical tags the model may pick from. Empty list = let the model decide.
+allowed = ["build", "test", "deploy", "lint", "db", "docker", "dev", "clean", "release", "docs", "ci"]
+
 # ── WIP ──────────────────────────────────────────────────────────────────────
 # Uncomment and fill these sections when the features are ready.
 
@@ -398,8 +434,10 @@ file = ".env"             # path to .env file (relative to this config)
 # type = "dotenv"   # dotenv | direnv | chamber | ssm
 
 # [source]
-# type = "makefile"   # makefile | taskfile | yaml
-# path = "./Makefile"
+# # Run cast against an alternate Makefile for this project. Layered:
+# # this path  <  CAST_MAKEFILE env  <  cast -f/--file flag.
+# path = "Makefile.personal"
+# # type = "makefile"   # reserved; only "makefile" is honoured today
 
 # [commands.shortcuts]
 # "b" = "build"

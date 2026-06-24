@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Cerebellum-ITM/cast/internal/ai"
 	"github.com/Cerebellum-ITM/cast/internal/config"
 	"github.com/Cerebellum-ITM/cast/internal/db"
 	"github.com/Cerebellum-ITM/cast/internal/library"
@@ -154,6 +156,7 @@ type Model struct {
 	makefileLines  []string
 	makefilePath   string
 	makefileDir    string // dirname(makefilePath); passed as `make -C <dir>`
+	makefileFile   string // basename(makefilePath); passed as `make -f <file>`
 	makefileOffset int
 
 	// .env tab state
@@ -279,6 +282,26 @@ type Model struct {
 	// Sub-mode inside the tags popup: editing the `[tags=...]` CSV list.
 	tagsEditing    bool
 	tagsEditBuffer string
+
+	// AI annotate popup (ctrl+i). Cycles menu → loading → diff/error. While
+	// loading, the popup blocks all keys except esc (which cancels). The
+	// target is captured at open time for the "this target" option.
+	showAIPopup   bool
+	aiPopupMode   views.AIPopupMode
+	aiPopupTarget string
+	aiPlan        ai.Plan
+	aiPopupErr    string
+	aiDiffLines   []string // full rendered diff, sliced by aiDiffOffset on render
+	aiDiffOffset  int
+	// AI config snapshot (the [ai] section). Captured at New() so the async
+	// annotate command stays a pure value-closure with no *Config reference.
+	aiProvider    string
+	aiModel       string
+	aiAPIKeyEnv   string
+	aiEndpoint    string
+	aiMaxTargets  int
+	aiTimeoutSecs int
+	aiAllowedTags []string
 
 	// Theme tab state.
 	themeTabSel int    // 0..len(themes)-1
@@ -423,6 +446,7 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		makefileLines:   loadFileLines(cfg.SourcePath),
 		makefilePath:    cfg.SourcePath,
 		makefileDir:     cfg.SourceDir,
+		makefileFile:    cfg.SourceFile,
 		envFile:         envFile,
 		envFilePath:     cfg.EnvFilePath,
 		outputWidthPct:  cfg.OutputWidthPct,
@@ -430,6 +454,13 @@ func New(cfg *config.Config, commands []source.Command, database *db.DB) Model {
 		showCenter:      cfg.ShowCenterPanel,
 		chainStepIdx:    -1,
 		chainHistoryMax: cfg.ChainHistoryMax,
+		aiProvider:      cfg.AIProvider,
+		aiModel:         cfg.AIModel,
+		aiAPIKeyEnv:     cfg.AIAPIKeyEnv,
+		aiEndpoint:      cfg.AIEndpoint,
+		aiMaxTargets:    cfg.AIMaxTargets,
+		aiTimeoutSecs:   cfg.AITimeoutSecs,
+		aiAllowedTags:   cfg.AIAllowedTags,
 	}
 }
 
@@ -812,6 +843,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+
+	case aiPlanMsg:
+		// Ignore a late result if the user already cancelled (esc) the popup.
+		if !m.showAIPopup {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.aiPopupMode = views.AIPopupError
+			m.aiPopupErr = msg.err.Error()
+			return m, nil
+		}
+		if len(msg.plan.Annotations) == 0 {
+			m.aiPopupMode = views.AIPopupError
+			m.aiPlan = msg.plan
+			m.aiPopupErr = "the model proposed no annotations"
+			return m, nil
+		}
+		m.aiPlan = msg.plan
+		src := []byte(strings.Join(m.makefileLines, "\n"))
+		m.aiDiffLines = strings.Split(ai.RenderDiff(msg.plan, src, m.aiDiffColors()), "\n")
+		m.aiDiffOffset = 0
+		m.aiPopupMode = views.AIPopupDiff
+		return m, nil
 	}
 
 	if m.state == StateSplash {
@@ -915,6 +969,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.showTagsPopup {
 		return m.handleTagsPopupKey(msg)
+	}
+	if m.showAIPopup {
+		return m.handleAIPopupKey(msg)
 	}
 	if m.activeTab == TabEnv {
 		return m.handleEnvKey(msg)
@@ -1204,6 +1261,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case k == m.keys.EditTags:
 		if m.activeTab == TabCommands && len(m.filtered) > 0 {
 			return m.openTagsPopup()
+		}
+		return m, nil
+	case k == m.keys.AnnotateAI:
+		if m.activeTab == TabCommands && m.mode == ModeSingle && len(m.filtered) > 0 {
+			return m.openAIPopup()
 		}
 		return m, nil
 	case k == m.keys.ExtractSnippet:
@@ -1632,6 +1694,180 @@ func (m *Model) setSelectedShortcut(newKey string) {
 		_ = source.UpdateMakefileShortcut(m.makefilePath, targetName, newKey)
 		m.makefileLines = loadFileLines(m.makefilePath)
 	}
+}
+
+// ── AI annotate popup (ctrl+i) ───────────────────────────────────────────────
+
+// aiDiffPageStep is how many diff rows pgup/pgdn jump inside the popup.
+const aiDiffPageStep = 10
+
+// aiPlanMsg carries the result of an asynchronous ai.Provider.Annotate call.
+type aiPlanMsg struct {
+	plan ai.Plan
+	err  error
+}
+
+// openAIPopup captures the selected target and shows the three-option menu.
+func (m Model) openAIPopup() (tea.Model, tea.Cmd) {
+	if m.activeTab != TabCommands || len(m.filtered) == 0 || m.selected >= len(m.filtered) {
+		return m, nil
+	}
+	m.aiPopupTarget = m.filtered[m.selected].Name
+	m.aiPopupMode = views.AIPopupMenu
+	m.aiPopupErr = ""
+	m.aiPlan = ai.Plan{}
+	m.aiDiffLines = nil
+	m.aiDiffOffset = 0
+	m.showAIPopup = true
+	return m, nil
+}
+
+// handleAIPopupKey routes input while the AI annotate popup is open. During
+// the loading phase every key except esc (cancel) is swallowed.
+func (m Model) handleAIPopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := msg.String()
+	switch m.aiPopupMode {
+	case views.AIPopupLoading:
+		if k == "esc" {
+			m.showAIPopup = false
+			m.aiPopupMode = views.AIPopupMenu
+		}
+		return m, nil
+
+	case views.AIPopupMenu:
+		switch k {
+		case "esc":
+			m.showAIPopup = false
+		case "t":
+			return m.startAnnotate(ai.SingleTarget, m.aiPopupTarget)
+		case "a":
+			return m.startAnnotate(ai.OnlyMissingDoc, "")
+		case "A":
+			return m.startAnnotate(ai.All, "")
+		}
+		return m, nil
+
+	case views.AIPopupError:
+		if k == "esc" {
+			m.showAIPopup = false
+		}
+		return m, nil
+
+	case views.AIPopupDiff:
+		switch k {
+		case "esc":
+			m.showAIPopup = false
+		case "enter":
+			return m.applyAIPlan()
+		case "up", "k":
+			if m.aiDiffOffset > 0 {
+				m.aiDiffOffset--
+			}
+		case "down", "j":
+			if m.aiDiffOffset < len(m.aiDiffLines)-1 {
+				m.aiDiffOffset++
+			}
+		case "pgup":
+			m.aiDiffOffset -= aiDiffPageStep
+			if m.aiDiffOffset < 0 {
+				m.aiDiffOffset = 0
+			}
+		case "pgdown":
+			m.aiDiffOffset += aiDiffPageStep
+			if maxOff := len(m.aiDiffLines) - 1; m.aiDiffOffset > maxOff {
+				m.aiDiffOffset = maxOff
+			}
+			if m.aiDiffOffset < 0 {
+				m.aiDiffOffset = 0
+			}
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+// startAnnotate switches the popup to the loading state and kicks off the
+// async LLM call plus the spinner tick.
+func (m Model) startAnnotate(mode ai.FilterMode, only string) (tea.Model, tea.Cmd) {
+	m.aiPopupMode = views.AIPopupLoading
+	m.aiPopupErr = ""
+	return m, tea.Batch(m.spinner.Tick, m.annotateCmd(mode, only))
+}
+
+// annotateCmd builds a pure value-closure that runs the annotation off the
+// Update loop and reports back via aiPlanMsg. The Makefile lines and every
+// config value are copied in so the closure never touches the live Model.
+func (m Model) annotateCmd(mode ai.FilterMode, only string) tea.Cmd {
+	lines := append([]string(nil), m.makefileLines...)
+	apiKeyEnv := m.aiAPIKeyEnv
+	model := m.aiModel
+	allowed := m.aiAllowedTags
+	maxTargets := m.aiMaxTargets
+	timeout := time.Duration(m.aiTimeoutSecs) * time.Second
+	provider := &ai.GroqProvider{
+		APIKey:   os.Getenv(apiKeyEnv),
+		Model:    model,
+		Endpoint: m.aiEndpoint,
+		HTTP:     &http.Client{Timeout: timeout},
+	}
+	return func() tea.Msg {
+		if provider.APIKey == "" {
+			return aiPlanMsg{err: fmt.Errorf(
+				"%s is not set — export it or add it to ~/.config/cast/.env", apiKeyEnv)}
+		}
+		tv, err := ai.BuildTargetViews(lines, mode, only)
+		if err != nil {
+			return aiPlanMsg{err: err}
+		}
+		if len(tv) == 0 {
+			return aiPlanMsg{plan: ai.Plan{}}
+		}
+		req := ai.Request{
+			Targets:      tv,
+			AllowedTags:  allowed,
+			OverwriteAll: mode != ai.OnlyMissingDoc,
+			Model:        model,
+			MaxTargets:   maxTargets,
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		plan, err := provider.Annotate(ctx, req)
+		return aiPlanMsg{plan: plan, err: err}
+	}
+}
+
+// applyAIPlan writes the proposed annotations to disk, then reparses the
+// Makefile so the sidebar reflects the new doc-lines without a restart.
+func (m Model) applyAIPlan() (tea.Model, tea.Cmd) {
+	n := len(m.aiPlan.Annotations)
+	if err := ai.ApplyPlan(m.aiPlan, m.makefilePath); err != nil {
+		m.aiPopupMode = views.AIPopupError
+		m.aiPopupErr = "apply failed: " + err.Error()
+		return m, nil
+	}
+	m.showAIPopup = false
+	src := &source.MakefileSource{Path: m.makefilePath}
+	if cmds, err := src.Load(); err == nil {
+		m.commands = cmds
+		m.filtered = filterCommands(m.commands, m.search)
+	}
+	if m.selected >= len(m.filtered) {
+		if len(m.filtered) > 0 {
+			m.selected = len(m.filtered) - 1
+		} else {
+			m.selected = 0
+		}
+	}
+	m.makefileLines = loadFileLines(m.makefilePath)
+	m.syncMakefilePreviewToSelection()
+	notice := m.setNotice(fmt.Sprintf("annotated %d target(s)", n), views.NoticeSuccess)
+	return m, notice
+}
+
+// aiDiffColors maps the active palette onto the diff renderer's colour slots.
+func (m Model) aiDiffColors() *ai.DiffColors {
+	p := paletteFor(m.theme, m.env)
+	return &ai.DiffColors{Add: p.Green, Del: p.Red, Context: p.FgDim}
 }
 
 // openTagsPopup loads the current tag state for the selected command from the
@@ -2567,7 +2803,7 @@ func (m Model) dispatchCommand(cmdMeta source.Command, extraVars []string) (tea.
 	}
 	name := cmdMeta.Name
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := runner.StreamRun(ctx, m.makefileDir, name, extraVars)
+	ch := runner.StreamRun(ctx, m.makefileDir, m.makefileFile, name, extraVars)
 	m.streamCh = ch
 	m.runCancel = cancel
 	stream := cmdMeta.Stream
@@ -2724,7 +2960,7 @@ func (m Model) dispatchInteractive(name string, extraVars []string) (tea.Model, 
 	m.streamCh = nil
 	m.runCancel = nil
 	startCmd := func() tea.Msg { return RunStartMsg{Command: name, Interactive: true} }
-	return m, tea.Sequence(startCmd, runner.InteractiveRun(m.makefileDir, name, extraVars))
+	return m, tea.Sequence(startCmd, runner.InteractiveRun(m.makefileDir, m.makefileFile, name, extraVars))
 }
 
 func waitNext(ch <-chan tea.Msg) tea.Cmd {

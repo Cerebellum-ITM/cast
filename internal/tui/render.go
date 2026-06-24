@@ -18,6 +18,22 @@ const (
 	statusH = 1
 )
 
+// windowLines returns the [off, off+h) slice of lines joined with newlines,
+// clamped to the available range. Used to scroll the AI annotate diff.
+func windowLines(lines []string, off, h int) string {
+	if off < 0 {
+		off = 0
+	}
+	if off > len(lines) {
+		off = len(lines)
+	}
+	end := off + h
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[off:end], "\n")
+}
+
 // renderMain is the root renderer. When the confirm modal is active it renders
 // the modal overlay instead of the normal three-panel layout.
 func (m Model) renderMain() string {
@@ -111,6 +127,26 @@ func (m Model) renderMain() string {
 			Selected:   m.tagsPopupSel,
 			Editing:    m.tagsEditing,
 			EditBuffer: m.tagsEditBuffer,
+		})
+		return views.OverlayCenter(full, box)
+	}
+
+	if m.showAIPopup {
+		var diffView string
+		if m.aiPopupMode == views.AIPopupDiff {
+			visH := m.height - 12
+			if visH < 6 {
+				visH = 6
+			}
+			diffView = windowLines(m.aiDiffLines, m.aiDiffOffset, visH)
+		}
+		box := views.AIAnnotatePopup(p, views.AIAnnotatePopupProps{
+			Mode:         m.aiPopupMode,
+			Target:       m.aiPopupTarget,
+			Plan:         m.aiPlan,
+			Error:        m.aiPopupErr,
+			Spinner:      m.spinner.View(),
+			DiffViewport: diffView,
 		})
 		return views.OverlayCenter(full, box)
 	}

@@ -37,6 +37,7 @@ type KeyMap struct {
 	MakefilePageDown string // scroll the center Makefile preview down one page
 	ModeToggle       string // switch sidebar/history between single and chain mode
 	ChainBuilder     string // open multi-select to build a chain on the fly
+	AnnotateAI       string // open the AI annotate popup for the commands tab
 }
 
 // DefaultKeyMap is the out-of-the-box key configuration.
@@ -70,4 +71,5 @@ var DefaultKeyMap = KeyMap{
 	MakefilePageDown: "pgdown",
 	ModeToggle:       "ctrl+s",
 	ChainBuilder:     "ctrl+a",
+	AnnotateAI:       "ctrl+i",
 }

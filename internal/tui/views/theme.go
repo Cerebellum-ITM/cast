@@ -243,7 +243,7 @@ func mockChipRow(fp Palette) string {
 	return RenderInlineTag(fp, "go") + " " +
 		RenderInlineTag(fp, "ci") + " " +
 		RenderInlineTag(fp, "prod") + " " +
-		RenderInlineTag(fp, "local")
+		RenderInlineTag(fp, "dev")
 }
 
 // mockStatusBar mirrors the real bottom status bar: muted background with
@@ -253,9 +253,9 @@ func mockStatusBar(fp Palette, w int) string {
 		w = 30
 	}
 	left := Style(fp.FgDim, false).Render(" 12 commands · ") +
-		Style(fp.Accent, true).Render("local")
+		Style(fp.Accent, true).Render("dev")
 	right := lipgloss.NewStyle().Background(fp.Accent).Foreground(fp.BgDeep).
-		Bold(true).Padding(0, 1).Render("LOCAL")
+		Bold(true).Padding(0, 1).Render("DEV")
 	pad := w - lipgloss.Width(left) - lipgloss.Width(right) - 1
 	if pad < 1 {
 		pad = 1

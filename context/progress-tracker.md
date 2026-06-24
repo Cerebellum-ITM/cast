@@ -46,10 +46,28 @@ prune anything stale):
 
 ## Next Up
 
-- TBD — pick the next unit and run `/spec-driven-dev spec 02 <name>`.
+- TBD — pick the next unit and run `/spec-driven-dev spec NN <name>`.
+- Deferred from unit 02 (revisit later): multi-provider switch
+  (Anthropic/Ollama), response caching by recipe hash, and parallel
+  batching when a Makefile exceeds `ai.max_targets`.
 
 ## Recently Completed (post-adoption)
 
+- **Unit 03 — custom-source-file** (v0.26.0, 2026-06-23). cast can run
+  against an arbitrary Makefile via `-f`/`--file`, `CAST_MAKEFILE`, or
+  `[source] path` (layered local < env < flag), honoured by every
+  subcommand through `config.LoadOptions`. The runner now pins the file
+  with `make -f <basename>`, so execution matches the parsed file and the
+  `GNUmakefile`/`Makefile` precedence footgun is gone. Spec at
+  `context/specs/03-custom-source-file.md`.
+- **Unit 02 — ai-annotate-makefile** (v0.25.0, 2026-06-19). New
+  `internal/ai/` package + `cast ai annotate` CLI
+  (`--target/--all/--dry-run/--yes/--json`, exit codes 0/1/2/3) and a
+  `ctrl+i` TUI popup (t/a/A menu → spinner → diff → apply+reparse). Adds
+  the `[ai]` config section and `source.WriteDocLine`. Groq client is
+  hand-written over `net/http`; description + categorical tags only — no
+  behavioural-flag inference. Spec at
+  `context/specs/02-ai-annotate-makefile.md`.
 - **Unit 01 — stream-popup-fullscreen-copy** (shipped in v0.24.0,
   2026-05-12). Output popup now respects `ctrl+x` global quit, cycles
   Hidden → Popup → Fullscreen via `ctrl+e` (status bar pinned in

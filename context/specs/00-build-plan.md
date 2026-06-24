@@ -25,6 +25,8 @@ Each unit becomes its own spec file in this folder (`NN-name.md`).
 | # | Name | What it builds | Depends on |
 |---|------|----------------|------------|
 | 01 | stream-popup-fullscreen-copy | Global quit (`ctrl+x`) inside the stream popup, second-`ctrl+e` fullscreen mode preserving the status bar, OSC52 copy with `y`. | none |
+| 02 | ai-annotate-makefile | `internal/ai/` package + `cast ai annotate` CLI and `ctrl+i` TUI popup to autocomplete Makefile doc-lines/tags via an LLM (Groq). | none |
+| 03 | custom-source-file | Run cast against an arbitrary Makefile (`-f/--file`, `CAST_MAKEFILE`, `[source] path`), honoured across all subcommands; runner passes `make -f` so execution matches the parsed file. | none |
 
 ## Notes
 

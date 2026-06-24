@@ -22,7 +22,11 @@ func (e Env) String() string {
 	case EnvProd:
 		return "prod"
 	default:
-		return "local"
+		// The default/non-deployed environment is named "dev" everywhere a
+		// user sees it (env pill, `cast config`, confirmation modal, history,
+		// the `cast init` template). "local" is still accepted as an alias by
+		// ParseEnv for backward compatibility.
+		return "dev"
 	}
 }
 
@@ -56,6 +60,7 @@ type Config struct {
 	SourceType  string // "makefile" | "taskfile" | "yaml"
 	SourcePath  string // absolute path, resolved via walk-up when needed
 	SourceDir   string // dirname(SourcePath); where recipes must execute
+	SourceFile  string // basename(SourcePath); passed to `make -f`
 	// SourceLookupDepth: parent directories to walk when resolving SourcePath.
 	// 0 disables walk-up. Default 5.
 	SourceLookupDepth int
@@ -91,6 +96,17 @@ type Config struct {
 	// emoji that render in any terminal. Anything unrecognized falls back to
 	// nerdfont.
 	IconStyle string
+
+	// AI configures the `cast ai annotate` LLM backend (the [ai] section).
+	// The API key is never stored in config; it is read at call time from the
+	// environment variable named by AIAPIKeyEnv.
+	AIProvider    string   // only "groq" wired today
+	AIModel       string   // e.g. "llama-3.3-70b-versatile"
+	AIAPIKeyEnv   string   // env var holding the API key (default GROQ_API_KEY)
+	AIEndpoint    string   // OpenAI-compatible chat/completions endpoint
+	AIMaxTargets  int      // batch size per LLM call
+	AITimeoutSecs int      // per-call HTTP timeout
+	AIAllowedTags []string // categorical tags the model may choose from
 }
 
 // Default returns a Config with sensible hardcoded defaults.
@@ -110,7 +126,26 @@ func Default() *Config {
 		SidebarWidthPct: 25,
 		ShowCenterPanel: true,
 		IconStyle:       "nerdfont",
+
+		AIProvider:    "groq",
+		AIModel:       "llama-3.3-70b-versatile",
+		AIAPIKeyEnv:   "GROQ_API_KEY",
+		AIEndpoint:    "https://api.groq.com/openai/v1/chat/completions",
+		AIMaxTargets:  40,
+		AITimeoutSecs: 30,
+		AIAllowedTags: []string{
+			"build", "test", "deploy", "lint", "db",
+			"docker", "dev", "clean", "release", "docs", "ci",
+		},
 	}
+}
+
+// LoadOptions carries the CLI-flag overrides into Load. Empty fields mean
+// "not set on the command line" and fall through to the lower layers.
+type LoadOptions struct {
+	Env        string // -env override
+	Theme      string // -theme override
+	SourceFile string // -f/--file: alternate Makefile path
 }
 
 // Load builds the resolved Config by layering:
@@ -118,8 +153,14 @@ func Default() *Config {
 //  2. Global config (~/.config/cast/cast.toml) — created if missing
 //  3. Local config (.cast.toml in cwd) — optional
 //  4. CAST_ENV environment variable
-//  5. flagEnv / flagTheme CLI overrides (empty = not set)
-func Load(flagEnv, flagTheme string) (*Config, error) {
+//  5. CLI flag overrides (empty = not set)
+//
+// The source-file path has its own override chain layered the same way:
+// default `./Makefile` → local `[source].path` → `CAST_MAKEFILE` env →
+// `opts.SourceFile` flag.
+func Load(opts LoadOptions) (*Config, error) {
+	flagEnv := opts.Env
+	flagTheme := opts.Theme
 	cfg := Default()
 
 	// ── Layer 2: global file ──────────────────────────────────────────────
@@ -154,6 +195,27 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 	}
 	if v := global.UI.Icons; v != "" {
 		cfg.IconStyle = v
+	}
+	if v := global.AI.Provider; v != "" {
+		cfg.AIProvider = v
+	}
+	if v := global.AI.Model; v != "" {
+		cfg.AIModel = v
+	}
+	if v := global.AI.APIKeyEnv; v != "" {
+		cfg.AIAPIKeyEnv = v
+	}
+	if v := global.AI.Endpoint; v != "" {
+		cfg.AIEndpoint = v
+	}
+	if v := global.AI.MaxTargets; v > 0 {
+		cfg.AIMaxTargets = v
+	}
+	if v := global.AI.TimeoutSecs; v > 0 {
+		cfg.AITimeoutSecs = v
+	}
+	if len(global.AI.Tags.Allowed) > 0 {
+		cfg.AIAllowedTags = global.AI.Tags.Allowed
 	}
 
 	// ── Layer 3: local file ───────────────────────────────────────────────
@@ -211,8 +273,21 @@ func Load(flagEnv, flagTheme string) (*Config, error) {
 		return nil, err
 	}
 
+	// Source-file override chain: local [source].path < CAST_MAKEFILE < -f flag.
+	// Selection is always explicit — cast never auto-prefers an alternate file.
+	if ok && local.Source.Path != "" {
+		cfg.SourcePath = local.Source.Path
+	}
+	if e := os.Getenv("CAST_MAKEFILE"); e != "" {
+		cfg.SourcePath = e
+	}
+	if opts.SourceFile != "" {
+		cfg.SourcePath = opts.SourceFile
+	}
+
 	cfg.SourcePath = resolveSourcePath(cfg.SourcePath, cfg.SourceLookupDepth)
 	cfg.SourceDir = filepath.Dir(cfg.SourcePath)
+	cfg.SourceFile = filepath.Base(cfg.SourcePath)
 
 	return cfg, nil
 }
@@ -295,7 +370,9 @@ func validateLayout(cfg *Config) error {
 	return nil
 }
 
-// ParseEnv converts a string to an Env, defaulting to EnvLocal.
+// ParseEnv converts a string to an Env. Anything that isn't a staging/prod
+// spelling — including "dev", "local", and "" (no env configured) — resolves
+// to the default EnvLocal, which presents as "dev".
 func ParseEnv(s string) Env {
 	switch s {
 	case "staging":
