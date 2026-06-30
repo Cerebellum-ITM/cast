@@ -42,28 +42,36 @@ func colorizeLogLine(p Palette, line string) string {
 	tag := line[levelStart:levelEnd]
 	rest := line[levelEnd:]
 
-	badge := levelStyle(p, tag).Bold(true).Render(padLevel(tag))
+	badge := levelStyle(p, tag).Bold(true).Render(abbrevLevel(tag))
 
+	// The message body gets the same rich token coloring as a level-less line
+	// (numbers, strings, paths, key=value, …) so structured fields stand out
+	// even when the line is prefixed by a level.
 	return Style(p.FgDim, false).Render(prefix) +
 		badge +
-		Style(p.Fg, false).Render(rest)
+		richColorLine(p, rest)
 }
 
-// padLevel uppercases and pads the level token so colored badges line up.
-func padLevel(tag string) string {
-	u := strings.ToUpper(tag)
-	// Normalize common aliases to 4-char badges.
-	switch u {
-	case "WARNING":
-		u = "WARN"
-	case "ERR":
-		u = "ERROR"
+// abbrevLevel normalizes a level token to charm/log's compact 4-char
+// uppercase form so the tags line up regardless of input: TRAC DEBU INFO
+// WARN ERRO FATA. Unknown tokens fall back to a plain uppercase.
+func abbrevLevel(tag string) string {
+	switch strings.ToLower(tag) {
+	case "trace":
+		return "TRAC"
+	case "debug":
+		return "DEBU"
+	case "info":
+		return "INFO"
+	case "warn", "warning":
+		return "WARN"
+	case "error", "err":
+		return "ERRO"
+	case "fatal":
+		return "FATA"
+	default:
+		return strings.ToUpper(tag)
 	}
-	// Pad to 5 chars so INFO/WARN/ERROR/DEBUG/TRACE/FATAL align.
-	if len(u) < 5 {
-		u += strings.Repeat(" ", 5-len(u))
-	}
-	return " " + u + " "
 }
 
 // levelStyle maps a level word to a lipgloss style, preferring charm-log's
