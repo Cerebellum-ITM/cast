@@ -500,6 +500,31 @@ func (m Model) sidebarPanelW() int {
 	return w
 }
 
+// mainShowCenter reports whether the center detail panel is visible in the
+// primary commands view. While a command runs it collapses so the logs panel
+// can zoom: the sidebar is left untouched and the logs take over the center's
+// space. It reverts to the configured ShowCenterPanel once the run finishes.
+func (m Model) mainShowCenter() bool {
+	return m.showCenter && !m.running
+}
+
+// mainOutputW returns the logs/output panel width for the primary commands
+// view. While a command runs ([mainShowCenter] is false) the logs zoom to fill
+// everything to the right of the (unchanged) sidebar; otherwise it falls back
+// to the percentage-derived width.
+func (m Model) mainOutputW() int {
+	if m.running {
+		// +1 reclaims the column the hidden center divider would have used so
+		// sidebar + divider + logs add up to exactly m.width (see renderBody).
+		w := m.width - m.sidebarPanelW() + 1
+		if w < 20 {
+			w = 20
+		}
+		return w
+	}
+	return m.outputPanelW()
+}
+
 // outputPctMax returns the maximum allowed output % given the current layout
 // (center visible vs hidden and the current sidebar %).
 func (m Model) outputPctMax() int {

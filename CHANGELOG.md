@@ -8,6 +8,16 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.27.0] – 2026-06-29
+
+### Changed
+
+- While a command is running, the main commands view now zooms the logs: the
+  center detail panel collapses and the output/logs panel expands to fill all
+  the space to the right of the sidebar. The sidebar (its width and contents)
+  stays untouched, and the view reverts to the three-panel layout once the run
+  finishes.
+
 ## [0.26.1] – 2026-06-23
 
 ### Changed

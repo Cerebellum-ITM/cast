@@ -53,6 +53,15 @@ prune anything stale):
 
 ## Recently Completed (post-adoption)
 
+- **Feat — running logs zoom** (2026-06-29, branch
+  `feat/logs-two-thirds-layout`). While a command runs (`m.running`)
+  the primary commands view hides the center detail panel and zooms the
+  logs panel to fill everything to the right of the sidebar; the sidebar
+  is left untouched (same width and content). Implemented via two
+  scoped helpers in `internal/tui/model.go` (`mainShowCenter`,
+  `mainOutputW`) used by `renderMain`/`renderBody`; the `.env` tab and
+  `recalcLayout` are unaffected. Reverts to the 3-panel layout on
+  `RunDoneMsg`. Width invariant covered by `TestRunningZoomLayout`.
 - **Unit 03 — custom-source-file** (v0.26.0, 2026-06-23). cast can run
   against an arbitrary Makefile via `-f`/`--file`, `CAST_MAKEFILE`, or
   `[source] path` (layered local < env < flag), honoured by every
