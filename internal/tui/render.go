@@ -47,9 +47,9 @@ func (m Model) renderMain() string {
 		bodyH = 1
 	}
 	sidebarW := m.sidebarPanelW()
-	outputW := m.outputPanelW()
+	outputW := m.mainOutputW()
 	centerW := m.width - sidebarW - outputW
-	if !m.showCenter {
+	if !m.mainShowCenter() {
 		centerW = 0
 	} else if centerW < 10 {
 		centerW = 10
@@ -354,7 +354,7 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	}
 
 	sbInner := m.sidebarPanelW() - 1
-	outInner := m.outputPanelW() - 1
+	outInner := m.mainOutputW() - 1
 
 	var queueCmds []string
 	curStep := 0
@@ -405,7 +405,7 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	})
 
 	var center string
-	if m.showCenter {
+	if m.mainShowCenter() {
 		center = m.renderCenter(p, centerW, bodyH)
 	}
 
@@ -429,7 +429,7 @@ func (m Model) renderBody(p views.Palette, bodyH, centerW int) string {
 	divStyle := lipgloss.NewStyle().Foreground(p.Border)
 	divCol := divStyle.Render(strings.Repeat("│\n", bodyH-1) + "│")
 
-	if !m.showCenter {
+	if !m.mainShowCenter() {
 		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, divCol, output)
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, divCol, center, divCol, output)

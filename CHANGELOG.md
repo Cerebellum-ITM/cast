@@ -8,6 +8,32 @@ Each entry is keyed by the value of `version.Current`
 (`internal/version/version.go`) at the time the change shipped. Newest
 versions on top.
 
+## [0.28.0] – 2026-06-29
+
+### Changed
+
+- Command output in the OUTPUT panel (and the expanded/fullscreen popup) now
+  uses a three-tier coloring model:
+  - Lines that already carry native ANSI colors (docker, kubectl, pytest, …)
+    pass through untouched.
+  - A recognized log level at the start of a line is rendered as a compact
+    4-letter colored tag — `TRAC DEBU INFO WARN ERRO FATA` — in level color
+    (text only, no background), replacing the previous 5-char `DEBUG`/`ERROR`
+    badges.
+  - Plain lines (no ANSI, no level) are now tokenized and colored — numbers,
+    quoted strings, paths, URLs, `key=value` pairs, IPs and timestamps stand
+    out — instead of rendering as one flat dim block.
+
+## [0.27.0] – 2026-06-29
+
+### Changed
+
+- While a command is running, the main commands view now zooms the logs: the
+  center detail panel collapses and the output/logs panel expands to fill all
+  the space to the right of the sidebar. The sidebar (its width and contents)
+  stays untouched, and the view reverts to the three-panel layout once the run
+  finishes.
+
 ## [0.26.1] – 2026-06-23
 
 ### Changed

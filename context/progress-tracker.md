@@ -53,6 +53,27 @@ prune anything stale):
 
 ## Recently Completed (post-adoption)
 
+- **Unit 04 — log-rendering-palette** (v0.28.0, 2026-06-29, branch
+  `feat/logs-two-thirds-layout`). Three-tier output coloring in
+  `internal/tui/views`: native ANSI respected (`hasANSI` passthrough,
+  unchanged); recognized levels rendered as compact 4-char colored tags
+  (`TRAC DEBU INFO WARN ERRO FATA`, text-only) via the new `abbrevLevel`
+  replacing `padLevel` in `logfmt.go`; plain lines tokenized by the new
+  `richColorLine`/`richTokenRe` in `common.go` (numbers, strings, paths,
+  URLs, key=value, IPs, timestamps). Both `views.Output` and
+  `views.ExpandedOutput` funnel through `colorizeLogLine`, so one change
+  covers every surface. Spec at
+  `context/specs/04-log-rendering-palette.md`; tests in
+  `internal/tui/views/logfmt_test.go`.
+- **Feat — running logs zoom** (2026-06-29, branch
+  `feat/logs-two-thirds-layout`). While a command runs (`m.running`)
+  the primary commands view hides the center detail panel and zooms the
+  logs panel to fill everything to the right of the sidebar; the sidebar
+  is left untouched (same width and content). Implemented via two
+  scoped helpers in `internal/tui/model.go` (`mainShowCenter`,
+  `mainOutputW`) used by `renderMain`/`renderBody`; the `.env` tab and
+  `recalcLayout` are unaffected. Reverts to the 3-panel layout on
+  `RunDoneMsg`. Width invariant covered by `TestRunningZoomLayout`.
 - **Unit 03 — custom-source-file** (v0.26.0, 2026-06-23). cast can run
   against an arbitrary Makefile via `-f`/`--file`, `CAST_MAKEFILE`, or
   `[source] path` (layered local < env < flag), honoured by every
